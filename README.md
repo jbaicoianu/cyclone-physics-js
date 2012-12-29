@@ -23,5 +23,6 @@ Usage:
           elation.physics.system.iterate(t - lasttime);
           renderer.render();
           lasttime = t;
+          requestAnimationFrame(stepfunc);
         });
 
