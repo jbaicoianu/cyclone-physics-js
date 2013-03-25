@@ -95,30 +95,30 @@ elation.extend("physics.rigidbody", function(args) {
       this.forces[k].apply();
     }
     this.acceleration.copy(this.force_accumulator.divideScalar(this.mass));
-    this.angularaccel.copy(this.momentInverse.multiplyVector3(this.torque_accumulator));
+    this.angularaccel.copy(this.torque_accumulator.applyMatrix4(this.momentInverse));
     this.updateState();
     //console.log([this.acceleration.x, this.acceleration.y, this.acceleration.z], [this.angularaccel.x, this.angularaccel.y, this.angularaccel.z]);
   }
   this.applyForce = function(force, relative) {
     this._tmpvec.copy(force);
     if (relative) {
-      this.object.matrixWorld.multiplyVector3(this._tmpvec).subSelf(this.object.matrixWorld.getPosition());
+      this._tmpvec.applyMatrix4(this.object.objects['3d'].matrixWorld).sub(this.object.objects['3d'].matrixWorld.getPosition());
     }
-    this.force_accumulator.addSelf(this._tmpvec);
+    this.force_accumulator.add(this._tmpvec);
   }
   this.applyForceAtPoint = function(force, point, relative) {
     this.applyForce(force, relative);
-    this.applyTorque(point.clone().crossSelf(force));
+    this.applyTorque(point.clone().cross(force));
   }
   this.applyTorque = function(torque) {
-    this.torque_accumulator.addSelf(torque);
+    this.torque_accumulator.add(torque);
   }
   this.setVelocity = function(vel) {
     this.velocity.copy(vel);
     this.updateState();
   }
   this.addVelocity = function(vel) {
-    this.velocity.addSelf(vel);
+    this.velocity.add(vel);
     this.updateState();
   }
   this.setAngularVelocity = function(vel) {
@@ -126,7 +126,7 @@ elation.extend("physics.rigidbody", function(args) {
     this.updateState();
   }
   this.addAngularVelocity = function(vel) {
-    this.angular.addSelf(vel);
+    this.angular.add(vel);
     this.updateState();
   }
   this.addForce = function(type, args) {
@@ -173,7 +173,7 @@ elation.extend("physics.rigidbody", function(args) {
   this.updateMoment = function(shape, shapeargs) {
     switch (shape) {
       case 'box':
-        var diff = shapeargs.max.clone().subSelf(shapeargs.min);
+        var diff = shapeargs.max.clone().sub(shapeargs.min);
         var xsq = diff.x*diff.x,
             ysq = diff.y*diff.y,
             zsq = diff.z*diff.z,
@@ -210,25 +210,29 @@ elation.extend("physics.rigidbody", function(args) {
    
   }
   this.getWorldPosition = function(point) {
+/*
     var worldpoint = this.position.clone();
     this.object.matrixWorld.multiplyVector3(worldpoint);
+    this.object.matrixWorld.multiplyVector3(worldpoint);
     return worldpoint;
+*/
+    return this.object.localToWorld(point);
   }
   this.getDirectionWorld = function(dir) {
-    var worlddir = dir.clone();
-    this.object.matrixWorld.multiplyVector3(worlddir).subSelf(this.object.matrixWorld.getPosition());
+    var worlddir = this.getWorldPosition(dir);
+    worlddid.sub(this.object.matrixWorld.getPosition());
     return worlddir;
   }
   this.getDirectionLocal = function(dir) {
     var worlddir = dir.clone();
-    worlddir.addSelf(this.object.matrixWorld.getPosition())
+    worlddir.add(this.object.matrixWorld.getPosition())
     var inv = new THREE.Matrix4();
     inv.getInverse(this.object.matrixWorld);
-    inv.multiplyVector3(worlddir);
+    worlddir.applyMatrix4(inv);
     return worlddir;
   }
   this.isPotentiallyColliding = function(other) {
-    this._tmpvec.copy(this.object.matrixWorld.getPosition()).subSelf(other.object.matrixWorld.getPosition());
+    this._tmpvec.copy(this.object.matrixWorld.getPosition()).sub(other.object.matrixWorld.getPosition());
     return (
       //other.object != this.object.parent &&
       //this.object != other.object.parent &&

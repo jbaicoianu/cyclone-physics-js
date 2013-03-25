@@ -80,19 +80,19 @@ elation.extend("physics.processor.cpu", function(parent) {
   }
   this.iterateAxis = function(obj, axis) {
     this._tmpvec.set(obj.position[axis], obj.velocity[axis], obj.acceleration[axis]);
-    this.parent.physicsmatrix.multiplyVector3(this._tmpvec);
+    this._tmpvec.applyMatrix4(this.parent.physicsmatrix);
     obj.position[axis] = this._tmpvec.x;
     obj.velocity[axis] = this._tmpvec.y;
   }
   this.iterateRotation = function(obj, t) {
     this._tmpvec.copy(obj.angularaccel).multiplyScalar(t);
-    obj.angular.addSelf(this._tmpvec).multiplyScalar(Math.pow(obj.angularDamping, t));
+    obj.angular.add(this._tmpvec).multiplyScalar(Math.pow(obj.angularDamping, t));
 
     this._tmpvec.copy(obj.angular);
     var theta = this._tmpvec.length();
     this._tmpvec.divideScalar(theta);
     this._tmpquat.setFromAxisAngle(this._tmpvec, theta*t);
-    obj.orientation.multiplySelf(this._tmpquat);
+    obj.orientation.multiply(this._tmpquat);
   }
 }, false, elation.physics.processor.base);
 
