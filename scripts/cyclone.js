@@ -64,6 +64,7 @@ elation.extend("physics.rigidbody", function(args) {
   this.force_accumulator = new THREE.Vector3();
   this.torque_accumulator = new THREE.Vector3();
   this._tmpvec = new THREE.Vector3();
+  this._tmpvec2 = new THREE.Vector3();
   this.lastacceleration = new THREE.Vector3();
 
   this.init = function() {
@@ -72,6 +73,7 @@ elation.extend("physics.rigidbody", function(args) {
         this[k] = args[k];
       }
     }
+    this.updateState();
   }
   this.updateState = function() {
     var lambda = 0.00001;
@@ -102,7 +104,8 @@ elation.extend("physics.rigidbody", function(args) {
   this.applyForce = function(force, relative) {
     this._tmpvec.copy(force);
     if (relative) {
-      this._tmpvec.applyMatrix4(this.object.objects['3d'].matrixWorld).sub(this.object.objects['3d'].matrixWorld.getPosition());
+      this._tmpvec2.getPositionFromMatrix(this.object.objects['3d'].matrixWorld);
+      this._tmpvec.applyMatrix4(this.object.objects['3d'].matrixWorld).sub(this._tmpvec2);
     }
     this.force_accumulator.add(this._tmpvec);
   }
@@ -220,12 +223,12 @@ elation.extend("physics.rigidbody", function(args) {
   }
   this.getDirectionWorld = function(dir) {
     var worlddir = this.getWorldPosition(dir);
-    worlddid.sub(this.object.matrixWorld.getPosition());
+    worlddir.sub(this._tmpvec2.getPositionFromMatrix(this.object.objects['3d'].matrixWorld));
     return worlddir;
   }
   this.getDirectionLocal = function(dir) {
     var worlddir = dir.clone();
-    worlddir.add(this.object.matrixWorld.getPosition())
+    worlddir.add(this._tmpvec2.getPositionFromMatrix(this.object.objects['3d'].matrixWorld))
     var inv = new THREE.Matrix4();
     inv.getInverse(this.object.matrixWorld);
     worlddir.applyMatrix4(inv);
