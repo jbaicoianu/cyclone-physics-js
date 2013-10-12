@@ -1,0 +1,26 @@
+rigidbody/
+  init
+  setposition
+  setvelocity
+  setcollider
+  
+
+colliders/
+  sphere_vertex
+  sphere_sphere
+  sphere_plane
+  sphere_box
+  box_vertex
+  box_plane
+  box_cube
+  plane_vertex
+forces/
+  aero
+  aerocontrol
+  buoyancy
+  drag
+  friction 
+  gravity
+  spring
+  static
+  
