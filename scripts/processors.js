@@ -4,12 +4,16 @@ elation.extend("physics.processor.base", function(parent) {
   this._tmpquat = new THREE.Quaternion();
   this._tmpmat = new THREE.Matrix4();
 
-  this.update = function(t) {
-    active = [];
-    for (var i = 0; i < this.parent.objects.length; i++) {
-      var obj = this.parent.objects[i];
+  this.update = function(objects, t, active) {
+    if (typeof active == 'undefined') active = [];
+    for (var i = 0; i < objects.length; i++) {
+      var obj = objects[i];
+      obj.updateState();
       if (!obj.state.sleeping) {
         active.push(obj);
+      }
+      if (obj.children.length > 0) {
+        this.update(obj.children, t, active);
       }
     }
     return active;
@@ -21,32 +25,24 @@ elation.extend("physics.processor.base", function(parent) {
     var collisions = [];
     var potentials = [];
     // FIXME - Brute force for now.  We should use octrees or BVH here
-    for (var i = 0; i < this.parent.objects.length; i++) {
-      var obj1 = this.parent.objects[i];
-      if (obj1.radius) {
-        for (var j = i+1; j < this.parent.objects.length; j++) {
-          var obj2 = this.parent.objects[j];
-          if (obj2.radius && !(obj1.state.sleeping && obj2.state.sleeping) && obj1.isPotentiallyColliding(obj2)) {
+    var objects = this.parent.getObjects();
+    for (var i = 0; i < objects.length-1; i++) {
+      var obj1 = objects[i];
+      if (obj1.collider && obj1.collider.radius) {
+        for (var j = i+1; j < objects.length; j++) {
+          var obj2 = objects[j];
+          if (obj2.collider && obj2.collider.radius && !(obj1.state.sleeping && obj2.state.sleeping) && obj1.isPotentiallyColliding(obj2)) {
             potentials.push([obj1, obj2, obj1.object.name, obj2.object.name]);
           }
         }
       }
     }
     if (potentials.length > 0) {
-      //console.log(potentials.length + ' potential crashes:', potentials);
       for (var i = 0; i < potentials.length; i++) {
         var obj1 = potentials[i][0], obj2 = potentials[i][1];
         var contact = obj1.getContact(obj2, collisions);
-/*
-        if (contact) {
-          if (elation.utils.isArray(contact)) {
-            collisions = collisions.concat(contact);
-          } else {
-            collisions.push(contact);
-          }
-        }
-*/
       }
+      //console.log(potentials.length + ' potential crashes:', potentials, collisions, this.parent.objects);
     }
     return collisions;
   }
@@ -57,7 +53,8 @@ elation.extend("physics.processor.base", function(parent) {
       collision.applyPositionChange();
       collision.applyVelocityChange();
 
-      elation.events.fire({type: 'collide', target: collision.bodies[0], element: collision.bodies[0], data: collision});
+      elation.events.fire({type: 'physics_collide', element: collision.bodies[0], data: collision});
+      elation.events.fire({type: 'physics_collide', element: collision.bodies[1], data: collision});
     }
   }
 });
@@ -67,22 +64,22 @@ elation.extend("physics.processor.cpu", function(parent) {
     for (var i = 0; i < objects.length; i++) {
       objects[i].updateAcceleration();
       if (objects[i].state.accelerating || objects[i].state.moving) {
-        this.iterateAxis(objects[i], 'x');
-        this.iterateAxis(objects[i], 'y');
-        this.iterateAxis(objects[i], 'z');
+        this.iterateAxis(objects[i], 'x', t);
+        this.iterateAxis(objects[i], 'y', t);
+        this.iterateAxis(objects[i], 'z', t);
       }
       if (objects[i].state.rotating) {
         this.iterateRotation(objects[i], t);
       }
       objects[i].updateState();
-      elation.events.fire({type: "dynamicsupdate", element: objects[i], data: t});
+      elation.events.fire({type: "physics_update", element: objects[i], data: t});
     }
   }
-  this.iterateAxis = function(obj, axis) {
+  this.iterateAxis = function(obj, axis, t) {
     this._tmpvec.set(obj.position[axis], obj.velocity[axis], obj.acceleration[axis]);
     this._tmpvec.applyMatrix4(this.parent.physicsmatrix);
     obj.position[axis] = this._tmpvec.x;
-    obj.velocity[axis] = this._tmpvec.y;
+    obj.velocity[axis] = this._tmpvec.y * Math.pow(obj.linearDamping, t);
   }
   this.iterateRotation = function(obj, t) {
     this._tmpvec.copy(obj.angularaccel).multiplyScalar(t);
