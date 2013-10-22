@@ -70,55 +70,93 @@ ElationTest.prototype.testCoordinateSpacesOrientation = function() {
 
 ElationTest.prototype.testCoordinateSpacePosition = function() {
   var parent = new elation.physics.rigidbody();
+  var middle = new elation.physics.rigidbody();
   var self = new elation.physics.rigidbody();
-  parent.add(self);
+  parent.add(middle);
+  middle.add(self);
 
   var point = new THREE.Vector3(0,0,-5);
+  // FIXME - these should come from a data provider
   var tests = [
     {
       parent: { position: [10, 0, 0], orientation: [0, 0, 0] },
+      middle: { position: [0, 0, 0], orientation: [0, 0, 0] },
       self: { position: [0, 10, 0], orientation: [0, 0, 0] },
-      expect: { positionLocal: [-10, -10, -5], positionWorld: [10, 10, -5] }
+      expect: { worldToLocal: [-10, -10, -5], localToWorld: [10, 10, -5] }
     },
+
+    // move/rotate parent
     {
       parent: { position: [10, 0, 0], orientation: [Math.PI/2, 0, 0] },
+      middle: { position: [0, 0, 0], orientation: [0, 0, 0] },
       self: { position: [0, 10, 0], orientation: [0, 0, 0] },
-      expect: { positionLocal: [10, 5, 10], positionWorld: [-10, -5, -10] }
+      expect: { worldToLocal: [-10, -15, 0], localToWorld: [10, 5, 10] }
     },
-/*
     {
       parent: { position: [10, 0, 0], orientation: [0, Math.PI/2, 0] },
+      middle: { position: [0, 0, 0], orientation: [0, 0, 0] },
       self: { position: [0, 10, 0], orientation: [0, 0, 0] },
-      expect: { positionLocal: [10, 10, 0], positionWorld: [-10, -10, -5] }
+      expect: { worldToLocal: [5, -10, -10], localToWorld: [5, 10, 0] }
     },
     {
       parent: { position: [10, 0, 0], orientation: [0, 0, Math.PI/2] },
+      middle: { position: [0, 0, 0], orientation: [0, 0, 0] },
       self: { position: [0, 10, 0], orientation: [0, 0, 0] },
-      expect: { positionLocal: [10, 10, 0], positionWorld: [-10, -10, -5] }
-    }
-*/
+      expect: { worldToLocal: [0, 0, -5], localToWorld: [0, 0, -5] }
+    },
+
+    // move/rotate middle
+    {
+      parent: { position: [10, 0, 0], orientation: [0, 0, 0] },
+      middle: { position: [0, 6, -12], orientation: [0, Math.PI/4, 0] },
+      self: { position: [0, 10, 0], orientation: [0, 0, 0] },
+      expect: { worldToLocal: [-12.020815908908844, -16, -2.1213203072547913], localToWorld: [6.464466154575348, 16, -15.535533845424652] }
+    },
+    {
+      parent: { position: [58.2, -19.9, -54.1], orientation: [Math.PI/7, Math.PI, -Math.PI] },
+      middle: { position: [-12.5, 18.3, 103.8], orientation: [Math.PI*2/5, -Math.PI*5/9, Math.PI*1/3] },
+      self: { position: [108.8, 27.8, -23.4], orientation: [-1, Math.PI*34/56, Math.PI/77] },
+      expect: { worldToLocal: [131.98530060052872, -126.06583851575851, -195.00476348400116], localToWorld: [63.21874148398638, 52.69714975357056, -255.2816796898842] }
+    },
+
+    // move/rotate self
+    {
+      parent: { position: [10, 0, 0], orientation: [0, 0, 0] },
+      middle: { position: [0, 0, 0], orientation: [0, 0, 0] },
+      self: { position: [0, 10, 0], orientation: [Math.PI/2, 0, 0] },
+      expect: { worldToLocal: [-10, -5, 10], localToWorld: [10, 15, 0] }
+    },
+    {
+      parent: { position: [10, 0, 0], orientation: [Math.PI/2, 0, 0] },
+      middle: { position: [0, 0, 0], orientation: [0, 0, 0] },
+      self: { position: [0, 10, 0], orientation: [0, 0, Math.PI/2] },
+      expect: { worldToLocal: [-15, 10, 0], localToWorld: [10, 5, 10] }
+    },
+    {
+      parent: { position: [10, 0, 0], orientation: [0, Math.PI/2, 0] },
+      middle: { position: [0, 0, 0], orientation: [0, 0, 0] },
+      self: { position: [0, 10, 0], orientation: [Math.PI/32, Math.PI/16, -Math.PI/8] },
+      expect: { worldToLocal: [10.331193923950195, -7.5534107983112335, -7.823836177587509], localToWorld: [5.11968731880188, 10.480668842792511, 0.9754516184329987] }
+    },
+
   ];
 
   for (var i = 0; i < tests.length; i++) {
     var test = tests[i];
     parent.position.fromArray(test.parent.position);
     parent.orientation.setFromEuler(new THREE.Euler().fromArray(test.parent.orientation));
+    middle.position.fromArray(test.middle.position);
+    middle.orientation.setFromEuler(new THREE.Euler().fromArray(test.middle.orientation));
     self.position.fromArray(test.self.position);
     self.orientation.setFromEuler(new THREE.Euler().fromArray(test.self.orientation));
 
     // FIXME - should happen automatically
     parent.updateState();
+    middle.updateState();
     self.updateState();
 
-    expectThat(self.localToWorldPos(point.clone()), isNearVector(test.expect.positionWorld));
-    expectThat(self.worldToLocalPos(point.clone()), isNearVector(test.expect.positionLocal));
-log(parent.orientation.toArray());
-log(parent.position.toArray());
-log(parent.positionWorld.toArray());
-log('====');
-log(self.orientation.toArray());
-log(self.position.toArray());
-log(self.positionWorld.toArray());
+    expectThat(self.localToWorldPos(point.clone()), isNearVector(test.expect.localToWorld));
+    expectThat(self.worldToLocalPos(point.clone()), isNearVector(test.expect.worldToLocal));
   }
 }
 
