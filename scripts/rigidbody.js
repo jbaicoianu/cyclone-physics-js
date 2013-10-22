@@ -38,7 +38,6 @@ elation.extend("physics.rigidbody", function(args) {
     var lambda = 0.00001;
     if (this.parent) {
       this.orientationWorld.multiplyQuaternions(this.parent.orientationWorld, this.orientation);
-console.log(this.parent.orientation.toArray());
       this.positionWorld.copy(this.position).applyQuaternion(this.parent.orientation.clone().inverse()).add(this.parent.positionWorld);
     } else {
       this.orientationWorld.copy(this.orientation).inverse();
@@ -181,24 +180,44 @@ console.log(this.parent.orientation.toArray());
     }
    
   }
-  this.localToWorldPos = function() {
+  // Coordinate space transforms
+
+  // world space to local space
+  this.worldToLocalPos = function() {
     var tmpquat = new THREE.Quaternion();
     return function(point) {
       if (!point) point = new THREE.Vector3();
-      point.add(this.position).applyQuaternion(tmpquat.copy(this.parent.orientation).inverse()).add(this.parent.positionWorld);
+      if (this.parent) {
+        point = this.parent.worldToLocalPos(point);
+      }
+      point = this.parentToLocalPos(point);
       return point;
     }
-  }()
-  this.worldToLocalPos = function(point) {
-    if (!point) point = new THREE.Vector3();
-    point.sub(this.parent.positionWorld).applyQuaternion(this.parent.orientation).sub(this.position);
+  }();
+  // local space to world space
+  this.localToWorldPos = function(point) {
+    point = this.localToParentPos(point);
+    if (this.parent) {
+      point = this.parent.localToWorldPos(point);
+    }
     return point;
   }
-  this.localToParentPos = function(pos) {
-    if (this.parent) {
-      
-    }
+  // local space to parent space
+  this.localToParentPos = function(point) {
+    if (!point) point = new THREE.Vector3();
+    point.applyQuaternion(this.orientation).add(this.position);
+    return point;
   }
+  // parent space to local space
+  this.parentToLocalPos = function() {
+    var tmpquat = new THREE.Quaternion();
+    return function(point) {
+      if (!point) point = new THREE.Vector3();
+      point.sub(this.position).applyQuaternion(tmpquat.copy(this.orientation).inverse());
+      return point;
+    }
+  }();
+  // local direction to world direction
   this.localToWorldDir = function() {
     var tmpquat = new THREE.Quaternion();
     return function(dir) {
@@ -206,9 +225,11 @@ console.log(this.parent.orientation.toArray());
       return dir.applyQuaternion(tmpquat);
     }
   }();
+  // world direction to local direction
   this.worldToLocalDir = function(dir) {
     return dir.applyQuaternion(this.orientationWorld);
   }
+
   this.isPotentiallyColliding = function(other) {
     this.localToWorldPos(this._tmpvec.set(0,0,0)).sub(other.localToWorldPos());
     return (
