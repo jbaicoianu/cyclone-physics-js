@@ -107,7 +107,7 @@ elation.extend("physics.rigidbody", function(args) {
       this.forces.push(force);
       this.updateAcceleration();
       this.updateState();
-      console.log('added new force', force);
+      //console.log('added new force', force);
     } else {
       console.log('Unknown force type: ' + type);
     }
@@ -184,14 +184,14 @@ elation.extend("physics.rigidbody", function(args) {
 
   // world space to local space
   this.worldToLocalPos = function() {
+    // closure for scratch variables
     var tmpquat = new THREE.Quaternion();
     return function(point) {
       if (!point) point = new THREE.Vector3();
       if (this.parent) {
         point = this.parent.worldToLocalPos(point);
       }
-      point = this.parentToLocalPos(point);
-      return point;
+      return this.parentToLocalPos(point);
     }
   }();
   // local space to world space
@@ -205,24 +205,23 @@ elation.extend("physics.rigidbody", function(args) {
   // local space to parent space
   this.localToParentPos = function(point) {
     if (!point) point = new THREE.Vector3();
-    point.applyQuaternion(this.orientation).add(this.position);
-    return point;
+    return point.applyQuaternion(this.orientation).add(this.position);
   }
   // parent space to local space
   this.parentToLocalPos = function() {
+    // closure for scratch variables
     var tmpquat = new THREE.Quaternion();
     return function(point) {
       if (!point) point = new THREE.Vector3();
-      point.sub(this.position).applyQuaternion(tmpquat.copy(this.orientation).inverse());
-      return point;
+      return point.sub(this.position).applyQuaternion(tmpquat.copy(this.orientation).inverse());
     }
   }();
   // local direction to world direction
   this.localToWorldDir = function() {
+    // temp variable closure
     var tmpquat = new THREE.Quaternion();
     return function(dir) {
-      tmpquat.copy(this.orientationWorld).inverse();
-      return dir.applyQuaternion(tmpquat);
+      return dir.applyQuaternion(tmpquat.copy(this.orientationWorld).inverse());
     }
   }();
   // world direction to local direction
