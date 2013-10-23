@@ -29,3 +29,25 @@ ForcesTest.prototype.testForceStatic = function() {
   expectThat(elation.physics.system.active, evalsToFalse);
 }
 
+ForcesTest.prototype.testForceStaticOffCenter = function() {
+  var body = new elation.physics.rigidbody({mass: 10});
+  body.setCollider('box', {min: new THREE.Vector3(-1,-1,-1), max: new THREE.Vector3(1,1,1)});
+  body.addForce('static', {force: new THREE.Vector3(0,0,-1), point: new THREE.Vector3(1,0,0)});
+  elation.physics.system.add(body);
+  elation.physics.system.start();
+
+  for (var i = 0; i < this.numsteps; i++) {
+    elation.physics.system.step(this.stepsize);
+    expectThat(body.velocity, not(isNearVector([0, 0, 0]))); 
+    expectThat(body.angular, not(isNearVector([0, 0, 0]))); 
+
+    // FIXME - this just checks the general direction.  we should do fancy math here and figure out the real expected values
+    // Object should move forward and slightly to the left before it starts spinning quickly in-place with a slight wobble
+    expectThat(body.velocity.x, lessOrEqual(0)); 
+    expectThat(body.velocity.y, equals(0)); 
+    expectThat(body.velocity.z, lessOrEqual(0)); 
+    expectThat(body.angular.x, equals(0)); 
+    expectThat(body.angular.y, greaterThan(0)); 
+    expectThat(body.angular.z, equals(0)); 
+  }
+}
