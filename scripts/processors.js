@@ -32,7 +32,7 @@ elation.extend("physics.processor.base", function(parent) {
         for (var j = i+1; j < objects.length; j++) {
           var obj2 = objects[j];
           if (obj2.collider && obj2.collider.radius && !(obj1.state.sleeping && obj2.state.sleeping) && obj1.isPotentiallyColliding(obj2)) {
-            potentials.push([obj1, obj2, obj1.object.name, obj2.object.name]);
+            potentials.push([obj1, obj2]);
           }
         }
       }
@@ -49,12 +49,23 @@ elation.extend("physics.processor.base", function(parent) {
   this.resolve = function(t, collisions) {
     for (var i = 0; i < collisions.length; i++) {
       var collision = collisions[i];
-      collision.calculateInternals(t);
-      collision.applyPositionChange();
-      collision.applyVelocityChange();
 
-      elation.events.fire({type: 'physics_collide', element: collision.bodies[0], data: collision});
-      elation.events.fire({type: 'physics_collide', element: collision.bodies[1], data: collision});
+      // Fire physics_collide event for each body involved
+      var events = elation.events.fire({type: 'physics_collide', element: collision.bodies[0], data: collision});
+      events.concat(elation.events.fire({type: 'physics_collide', element: collision.bodies[1], data: collision}));
+    
+      // Check to see if preventDefault was called in any event handlers
+      var process = true;
+      for (var j = 0; j < events.length; j++) {
+        process = process && events[j].returnValue;
+      }
+      // If not already handled, fall back on default physically-simulated bounce handling
+      if (process) {
+        collision.resolve(t);
+        elation.events.fire({type: 'physics_collision_resolved', element: collision.bodies[0], data: collision});
+        elation.events.fire({type: 'physics_collision_resolved', element: collision.bodies[1], data: collision});
+      }
+
     }
   }
 });
