@@ -16,12 +16,10 @@ ForcesTest.prototype.testForceStatic = function() {
     elation.physics.system.step(this.stepsize);
     expectThat(body.state.sleeping, evalsToFalse);
 
-/*
-    // velocity = acceleration * time
-    expectThat(body.velocity, isNearVector([this.stepsize * (i+1), 0, 0]));
-    // position = 1/2 * acceleration * time^2
-    expectThat(body.position, isNearVector([.5 * Math.pow(this.stepsize * (i+1), 2), 0, 0]));
-*/
+    // velocity = force * mass * time
+    expectThat(body.velocity, isNearVector([strength * body.mass * this.stepsize * (i+1), 0, 0]));
+    // position = 1/2 * force * time * time^2
+    expectThat(body.position, isNearVector([.5 * strength * body.mass * Math.pow(this.stepsize * (i+1), 2), 0, 0]));
   }
 
   elation.physics.system.remove(body);
