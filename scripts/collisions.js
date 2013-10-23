@@ -172,6 +172,11 @@ elation.extend("physics.contact", function(contactargs) {
   if (contactargs.object1) this.bodies.push(contactargs.object1);
   if (contactargs.object2) this.bodies.push(contactargs.object2);
 
+  this.resolve = function(t) {
+    this.calculateInternals(t);
+    this.applyPositionChange();
+    this.applyVelocityChange();
+  }
   this.calculateContactMatrix = function() {
     // TODO - make this more memory efficient
 
