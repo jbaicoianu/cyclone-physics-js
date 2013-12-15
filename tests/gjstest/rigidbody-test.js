@@ -22,21 +22,22 @@ RigidbodyTest.prototype.testCoordinateSpacesOrientation = function() {
   expectThat(body.localToWorldDir(forward.clone()), isNearVector([0, 0, -1]));
 
   var tests = [
-    // up 90 degrees
+    // right 90 degrees
     [ [0, Math.PI/2, 0], [1, 0, 0], [-1, 0, 0] ],
 
     // left 45 degrees
     [ [Math.PI/4, 0, 0], [0, -Math.sin(Math.PI/4), -Math.sin(Math.PI/4)], [0, Math.sin(Math.PI/4), -Math.sin(Math.PI/4)] ],
 
     // up 37 degrees, left 24, roll 75 
-    [ [37 * Math.PI/180, 24 * Math.PI/180, 75 * Math.PI/180], [-0.49723538756370544, -0.46952706575393677, -0.7295898199081421], [-0.4067366421222687, 0.5497853755950928, -0.7295898199081421] ],
+    //[ [37 * Math.PI/180, 24 * Math.PI/180, 75 * Math.PI/180], [-0.49723538756370544, -0.46952706575393677, -0.7295898199081421], [-0.4067366421222687, 0.5497853755950928, -0.7295898199081421] ],
   ]
 
   for (var i = 0; i < tests.length; i++) {
-    body.orientation.setFromEuler(new THREE.Euler(0, Math.PI/2, 0));
+    var test = tests[i];
+    body.orientation.setFromEuler(new THREE.Euler(test[0][0], test[0][1], test[0][2]));
     body.updateState(); // FIXME - should happen automatically
-    expectThat(body.worldToLocalDir(forward.clone()), isNearVector([1, 0, 0]));
-    expectThat(body.localToWorldDir(forward.clone()), isNearVector([-1, 0, 0]));
+    expectThat(body.localToWorldDir(forward.clone()), isNearVector(test[1]));
+    expectThat(body.worldToLocalDir(forward.clone()), isNearVector(test[2]));
   }
 }
 
@@ -133,46 +134,47 @@ RigidbodyTest.prototype.testCoordinateSpacePosition = function() {
 }
 
 RigidbodyTest.prototype.testVelocity = function() {
+  var system = new elation.physics.system();
+
   var body = new elation.physics.rigidbody();
 
-  expectThat(elation.physics.system.objects.length, equals(0));
-  elation.physics.system.add(body);
-  expectThat(elation.physics.system.objects, contains(body));
+  expectThat(system.objects.length, equals(0));
+  system.add(body);
+  expectThat(system.objects, contains(body));
 
-  expectThat(elation.physics.system.active, evalsToFalse);
-  elation.physics.system.start();
-  expectThat(elation.physics.system.active, evalsToTrue);
+  expectThat(system.active, evalsToTrue);
 
   body.velocity.set(1,0,0);
   expectThat(body.velocity, isNearVector([1, 0, 0]));
 
   for (var i = 0; i < this.numsteps; i++) {
-    elation.physics.system.step(this.stepsize);
+    system.step(this.stepsize);
     expectThat(body.position, isNearVector([this.stepsize * (i+1), 0, 0]));
   }
 
-  elation.physics.system.remove(body);
-  expectThat(elation.physics.system.objects.length, equals(0));
+  system.remove(body);
+  expectThat(system.objects.length, equals(0));
 
-  elation.physics.system.stop();
-  expectThat(elation.physics.system.active, evalsToFalse);
+  system.stop();
+  expectThat(system.active, evalsToFalse);
 }
 RigidbodyTest.prototype.testAcceleration = function() {
-  var body = new elation.physics.rigidbody({mass: 1});
+  var system = new elation.physics.system();
 
+  var body = new elation.physics.rigidbody({mass: 1});
   body.acceleration.set(1,0,0);
 
-  expectThat(elation.physics.system.objects.length, equals(0));
-  elation.physics.system.add(body);
-  expectThat(elation.physics.system.objects.length, equals(1));
-  elation.physics.system.start();
+  expectThat(system.objects.length, equals(0));
+  system.add(body);
+  expectThat(system.objects.length, equals(1));
+  system.start();
 
   expectThat(body.position, isNearVector([0, 0, 0]));
   expectThat(body.velocity, isNearVector([0, 0, 0]));
   expectThat(body.acceleration, isNearVector([1,0,0]));
 
   for (var i = 0; i < this.numsteps; i++) {
-    elation.physics.system.step(this.stepsize);
+    system.step(this.stepsize);
     expectThat(body.state.sleeping, evalsToFalse);
 
     // velocity = acceleration * time
@@ -181,9 +183,9 @@ RigidbodyTest.prototype.testAcceleration = function() {
     expectThat(body.position, isNearVector([.5 * Math.pow(this.stepsize * (i+1), 2), 0, 0]));
   }
 
-  elation.physics.system.remove(body);
-  expectThat(elation.physics.system.objects.length, equals(0));
+  system.remove(body);
+  expectThat(system.objects.length, equals(0));
 
-  elation.physics.system.stop();
-  expectThat(elation.physics.system.active, evalsToFalse);
+  system.stop();
+  expectThat(system.active, evalsToFalse);
 }

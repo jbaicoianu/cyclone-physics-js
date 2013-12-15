@@ -65,7 +65,9 @@ elation.extend("physics.rigidbody", function(args) {
         this.forces[k].apply();
       }
       this.acceleration.copy(this.force_accumulator.divideScalar(this.mass));
-      this.angularaccel.copy(this.torque_accumulator.applyMatrix4(this.momentInverse));
+      if (this.collider && this.collider.momentInverse) {
+        this.angularaccel.copy(this.torque_accumulator.applyMatrix4(this.collider.momentInverse));
+      }
     }
     this.updateState();
     //console.log([this.acceleration.x, this.acceleration.y, this.acceleration.z], [this.angularaccel.x, this.angularaccel.y, this.angularaccel.z]);
@@ -135,12 +137,13 @@ elation.extend("physics.rigidbody", function(args) {
     }
   }
   this.updateForce = function(name, args) {
-/*
+    /*
     if (this.forces[name]) {
       this.forces[name].update(args);
     }
-*/
+    */
   }
+  /*
   this.updateMoment = function(shape, shapeargs) {
     switch (shape) {
       case 'box':
@@ -178,8 +181,9 @@ elation.extend("physics.rigidbody", function(args) {
       default:
         console.log('Unimplemented inertia moment tensor: ' + shape);
     }
-   
   }
+  */
+
   // Coordinate space transforms
 
   // world space to local space
@@ -216,30 +220,40 @@ elation.extend("physics.rigidbody", function(args) {
       return point.sub(this.position).applyQuaternion(tmpquat.copy(this.orientation).inverse());
     }
   }();
-  // local direction to world direction
-  this.localToWorldDir = function() {
+  // world direction to local direction
+  this.worldToLocalDir = function() {
     // temp variable closure
     var tmpquat = new THREE.Quaternion();
     return function(dir) {
       return dir.applyQuaternion(tmpquat.copy(this.orientationWorld).inverse());
     }
   }();
-  // world direction to local direction
-  this.worldToLocalDir = function(dir) {
+  // local direction to world direction
+  this.localToWorldDir = function(dir) {
     return dir.applyQuaternion(this.orientationWorld);
   }
 
-  this.isPotentiallyColliding = function(other) {
-    this.localToWorldPos(this._tmpvec.set(0,0,0)).sub(other.localToWorldPos());
-    return (
-      //other.object != this.object.parent &&
-      //this.object != other.object.parent &&
-      this._tmpvec.lengthSq() <= Math.pow(this.collider.radius + other.collider.radius, 2)
-     );
-  }
-  this.getContact = function(other, collisions) {
+  this.isPotentiallyColliding = function() {
+    // closure scratch vars
+    var thispos = new THREE.Vector3(),
+        otherpos = new THREE.Vector3(),
+        diff = new THREE.Vector3();
+
+    return function(other) {
+      other.localToWorldPos(otherpos.set(0,0,0));
+      this.localToWorldPos(thispos.set(0,0,0));
+      diff.subVectors(otherpos, thispos);
+      var radius = this.collider.radius + other.collider.radius;
+      return (
+        //other.object != this.object.parent &&
+        //this.object != other.object.parent &&
+        diff.lengthSq() <= radius * radius
+       );
+    }
+  }();
+  this.getContacts = function(other, collisions) {
     if (this.collider && other.collider) {
-      return this.collider.getContact(other.collider, collisions);
+      return this.collider.getContacts(other.collider, collisions);
     }
     return false;
   }
@@ -249,7 +263,7 @@ elation.extend("physics.rigidbody", function(args) {
     } else {
       console.log('Unknown collider type ' + type);
     }
-    this.updateMoment(type, colliderargs);
+    this.collider.getInertialMoment();
   }
   this.setDamping = function(linear, angular) {
     if (typeof angular == 'undefined') angular = linear;
