@@ -1,12 +1,16 @@
 elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "physics.collisions"]);
 
-elation.extend("physics.system", new function() {
+elation.extend("physics.system", function(args) {
   this.physicsmatrix = new THREE.Matrix4(1, 1, .5, 0, 0, 1, 1, 0, 0, 0, 1, 0);
   this.active = false;
   this.objects = [];
   this.processor = false;
+  this.args = args || {};
 
   this.init = function() {
+    if (this.args.autostart !== false) {
+      this.start();
+    }
   }
   this.start = function() {
     this.active = true;
@@ -32,7 +36,7 @@ elation.extend("physics.system", new function() {
 
       // step 3: detect contacts
       var collisions = this.processor.collide(t)
-      if (collisions.length > 0) {
+      if (collisions && collisions.length > 0) {
         // step 4: resolve collisions
         this.processor.resolve(t, collisions);
       }
@@ -59,14 +63,5 @@ elation.extend("physics.system", new function() {
     }
     return all;
   }
+  this.init();
 });
-function VECDUMP(v) {
-  return '[' + v.x.toFixed(4) + ', ' + v.y.toFixed(4) + ', ' + v.z.toFixed(4) + ']';
-}
-function MATDUMP(m) {
-  var ret = '';
-  for (var i = 0; i < 3; i++) {
-    ret += VECDUMP({x: m[i*3], y: m[i*3+1], z: m[i*3+2]}) + '\n';
-  }
-  return ret;
-}
