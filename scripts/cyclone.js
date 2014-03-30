@@ -46,9 +46,13 @@ elation.extend("physics.system", function(args) {
     this.objects.push(obj);
   }
   this.remove = function(obj) {
-    var i = this.objects.indexOf(obj);
-    if (i != -1) {
-      this.objects.splice(i, 1);
+    if (obj.parent) {
+      obj.parent.remove(obj);
+    } else {
+      var i = this.objects.indexOf(obj);
+      if (i != -1) {
+        this.objects.splice(i, 1);
+      }
     }
   }
   this.getObjects = function(objects, all) {
