@@ -4,7 +4,9 @@ elation.extend("physics.rigidbody", function(args) {
   this.orientation = new THREE.Quaternion();
   this.orientationWorld = new THREE.Quaternion();
   this.velocity = new THREE.Vector3();
+  this.acceleration = new THREE.Vector3();
   this.angular = new THREE.Vector3();
+  this.angularacceleration = new THREE.Vector3();
   this.forces = [];
   this.mass = 0;
   this.state = {sleeping: true, accelerating: false, moving: false, rotating: false};
@@ -18,8 +20,6 @@ elation.extend("physics.rigidbody", function(args) {
   this.children = [];
 
   // Accumulation buffers for linear and rotational acceleration
-  this.acceleration = new THREE.Vector3();
-  this.angularaccel = new THREE.Vector3();
   this.force_accumulator = new THREE.Vector3();
   this.torque_accumulator = new THREE.Vector3();
   this._tmpvec = new THREE.Vector3();
@@ -44,10 +44,13 @@ elation.extend("physics.rigidbody", function(args) {
       this.positionWorld.copy(this.position);
     }
 
-    this.state.forces = (this.forces.length > 0);
+    this.state.forces = false;
+    for (var i = 0, l = this.forces.length; i < l; i++) {
+      this.state.forces = this.state.forces || this.forces[i].sleeping;
+    }
     this.state.accelerating = (this.acceleration && this.acceleration.lengthSq() > lambda);
     this.state.moving = (this.velocity && this.velocity.lengthSq() > lambda);
-    this.state.rotating = ((this.angular && this.angular.lengthSq() > lambda) || (this.angularaccel && this.angularaccel.lengthSq() > lambda));
+    this.state.rotating = ((this.angular && this.angular.lengthSq() > lambda) || (this.angularacceleration && this.angularacceleration.lengthSq() > lambda));
 
     this.state.sleeping = this.paused || !(this.state.forces || this.state.accelerating || this.state.moving || this.state.rotating);
     return this.state.sleeping;
@@ -66,11 +69,11 @@ elation.extend("physics.rigidbody", function(args) {
       }
       this.acceleration.copy(this.force_accumulator.divideScalar(this.mass));
       if (this.collider && this.collider.momentInverse) {
-        this.angularaccel.copy(this.torque_accumulator.applyMatrix4(this.collider.momentInverse));
+        this.angularacceleration.copy(this.torque_accumulator.applyMatrix4(this.collider.momentInverse));
       }
     }
     this.updateState();
-    //console.log([this.acceleration.x, this.acceleration.y, this.acceleration.z], [this.angularaccel.x, this.angularaccel.y, this.angularaccel.z]);
+    //console.log([this.acceleration.x, this.acceleration.y, this.acceleration.z], [this.angularacceleration.x, this.angularacceleration.y, this.angularacceleration.z]);
   }
   this.applyForce = function(force, relative) {
     this._tmpvec.copy(force);
