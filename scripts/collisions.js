@@ -882,7 +882,7 @@ elation.extend("physics.contact", function(contactargs) {
           //this.bodies[i].orientation.copy(q);
         }
       }
-      console.log('move it', linearMove, [linearChange[0].toArray(), linearChange[1].toArray()], angularMove, [angularChange[0].toArray(), angularChange[1].toArray()], this.normal.toArray(), this);
+      //console.log('move it', linearMove, [linearChange[0].toArray(), linearChange[1].toArray()], angularMove, [angularChange[0].toArray(), angularChange[1].toArray()], this.normal.toArray(), this);
     }
   }();
 });
