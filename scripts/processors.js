@@ -239,7 +239,9 @@ elation.extend("physics.processor.cpu", function(parent) {
         this.iterateRotation(objects[i], t);
       }
       objects[i].updateState();
-      elation.events.fire({type: "physics_update", element: objects[i], data: t});
+      if (!objects[i].state.sleeping) {
+        elation.events.fire({type: "physics_update", element: objects[i], data: t});
+      }
     }
   }
   this.iterateAxis = function(obj, axis, t) {
@@ -249,7 +251,7 @@ elation.extend("physics.processor.cpu", function(parent) {
     obj.velocity[axis] = this._tmpvec.y * Math.pow(obj.linearDamping, t);
   }
   this.iterateRotation = function(obj, t) {
-    this._tmpvec.copy(obj.angularaccel).multiplyScalar(t);
+    this._tmpvec.copy(obj.angularacceleration).multiplyScalar(t);
     obj.angular.add(this._tmpvec).multiplyScalar(Math.pow(obj.angularDamping, t));
 
     this._tmpvec.copy(obj.angular);
