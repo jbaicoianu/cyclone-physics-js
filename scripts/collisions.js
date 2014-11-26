@@ -67,17 +67,17 @@ elation.extend("physics.colliders.helperfuncs", new function() {
     }
   }();
 
-  this.sphere_box = function() {
+  this.box_sphere = function() {
     // closure scratch variables
-    var center = new THREE.Vector3(),
-        centerWorld = new THREE.Vector3(),
+    var center = new THREE.Vector3(),      // center of sphere, box-space coordinates
+        centerWorld = new THREE.Vector3(), // center of sphere, world-space coordinates
         diff = new THREE.Vector3(),
         closest = new THREE.Vector3();
 
-    return function(sphere, box, contacts) {
+    return function(box, sphere, contacts) {
       if (!contacts) contacts = [];
 
-      // Get sphere position in world and in box-local coordinate space
+      // Get sphere position in world and in the box's coordinate space
       sphere.body.localToWorldPos(centerWorld.set(0,0,0));
       box.body.worldToLocalPos(center.copy(centerWorld));
 
@@ -99,6 +99,7 @@ elation.extend("physics.colliders.helperfuncs", new function() {
       if (dist > sphere.radius * sphere.radius) {
         return 0;
       }
+//console.log('BOING', closest.toArray(), center.toArray(), diff.toArray(), dist, sphere.radius);
 
       // Transform back to world space
       box.body.localToWorldPos(closest);
@@ -106,8 +107,8 @@ elation.extend("physics.colliders.helperfuncs", new function() {
       var contact = new elation.physics.contact({
         point: closest.clone(), // allocate point
         normal: centerWorld.clone().sub(closest).normalize(), // allocate normal
-        penetration: sphere.radius - Math.sqrt(dist),
-        bodies: [sphere.body, box.body]
+        penetration: -(sphere.radius - Math.sqrt(dist)),
+        bodies: [box.body, sphere.body]
       });
       contacts.push(contact);
       
@@ -203,6 +204,23 @@ elation.extend("physics.colliders.helperfuncs", new function() {
   }
 
   this.box_box = function() {
+    // closure scratch variables
+    var diff = new THREE.Vector3(),
+        thispos = new THREE.Vector3(),
+        otherpos = new THREE.Vector3(),
+        matrix1 = new THREE.Matrix4(),
+        matrix2 = new THREE.Matrix4(),
+        axis = new THREE.Vector3(),
+        axis2 = new THREE.Vector3(),
+        corner = new THREE.Vector3(),
+        smallestPenetration, smallestIndex, best;
+
+    var axes = [
+        new THREE.Vector3(1,0,0),
+        new THREE.Vector3(0,1,0),
+        new THREE.Vector3(0,0,1)
+      ];
+
     // static helper functions
 
     var tmpaxis = new THREE.Vector3();
@@ -219,29 +237,49 @@ elation.extend("physics.colliders.helperfuncs", new function() {
 //console.log(axis.toArray(), oneProject, twoProject, distance, oneProject + twoProject - distance);
       return oneProject + twoProject - distance;
     }
-    function testOverlap(box1, box2, axis, diff) {
+    function testOverlap(box1, box2, axis, diff, index) {
       if (axis.lengthSq() < 0.0001) return true;
       axis.normalize();
       var penetration = penetrationOnAxis(box1, box2, axis, diff);
       if (penetration < 0) return false;
-      /*
       if (penetration < smallestPenetration) {
         smallestPenetration = penetration;
-        smallestCase = index;
+        smallestIndex = index;
       }
-      */
       return true;
     }
+    function getAxis(obj, index, taxis) {
+      if (!taxis) taxis = axis;
+      matrix1.makeRotationFromQuaternion(obj.body.orientationWorld);
+      var m1 = matrix1.elements;
+      var offset = index * 4;
+      taxis.set(m1[offset], m1[offset+1], m1[offset+2]);
+      return taxis;
+    }
+    function fillPointFaceBoxBox(box1, box2, toCenter, best, penetration) {
+      var point = new THREE.Vector3(); // allocate point
+      var normal = new THREE.Vector3(0,1,0); // allocate normal
 
-    // closure scratch variables
-    var diff = new THREE.Vector3(),
-        thispos = new THREE.Vector3(),
-        otherpos = new THREE.Vector3(),
-        matrix1 = new THREE.Matrix4(),
-        matrix2 = new THREE.Matrix4(),
-        axis = new THREE.Vector3(),
-        axis2 = new THREE.Vector3(),
-        corner = new THREE.Vector3();
+      getAxis(box1, best, normal);
+      if (normal.dot(toCenter) < 0) {
+        normal.multiplyScalar(-1);
+      }
+
+      point.copy(box2.halfsize);
+      if (getAxis(box2, 0, axis).dot(normal) < 0) point.x = -point.x;
+      if (getAxis(box2, 1, axis).dot(normal) < 0) point.y = -point.y;
+      if (getAxis(box2, 2, axis).dot(normal) < 0) point.z = -point.z;
+    
+      var contact = new elation.physics.contact({
+        point: box2.body.localToWorldPos(point),
+        normal: normal.normalize(),
+        penetration: -penetration,
+        restitution: box1.body.restitution * box2.body.restitution,
+        bodies: [box1.body, box2.body]
+      });
+
+      return contact;
+    }
 
     return function(box1, box2, contacts) {
       if (!contacts) contacts = [];
@@ -254,38 +292,40 @@ elation.extend("physics.colliders.helperfuncs", new function() {
       var m1 = matrix1.elements,
           m2 = matrix2.elements;
 
-      var overlapping = (
-        // box1's primary axes
-        testOverlap(box1, box2, axis.set(m1[0],m1[1],m1[2]), diff) &&
-        testOverlap(box1, box2, axis.set(m1[4],m1[5],m1[6]), diff) &&
-        testOverlap(box1, box2, axis.set(m1[8],m1[9],m1[10]), diff) &&
+      smallestPenetration = Infinity;
+      smallestIndex = false;
 
-        // box 2's primary axes
-        testOverlap(box1, box2, axis.set(m2[0],m2[1],m2[2]), diff) &&
-        testOverlap(box1, box2, axis.set(m2[4],m2[5],m2[6]), diff) &&
-        testOverlap(box1, box2, axis.set(m2[8],m2[9],m2[10]), diff) &&
+      // box1's primary axes
+      if (!testOverlap(box1, box2, getAxis(box1, 0, axis), diff, 0)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 1, axis), diff, 1)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 2, axis), diff, 2)) return false;
 
-        // perpendicular axes
-        testOverlap(box1, box2, axis.set(m1[0],m1[1],m1[2]).cross(axis2.set(m2[0],m2[1],m2[2])), diff) &&
-        testOverlap(box1, box2, axis.set(m1[0],m1[1],m1[2]).cross(axis2.set(m2[4],m2[5],m2[6])), diff) &&
-        testOverlap(box1, box2, axis.set(m1[0],m1[1],m1[2]).cross(axis2.set(m2[8],m2[9],m2[10])), diff) &&
+      // box 2's primary axes
+      if (!testOverlap(box1, box2, getAxis(box2, 0, axis), diff, 3)) return false;
+      if (!testOverlap(box1, box2, getAxis(box2, 1, axis), diff, 4)) return false;
+      if (!testOverlap(box1, box2, getAxis(box2, 2, axis), diff, 5)) return false;
 
-        testOverlap(box1, box2, axis.set(m1[4],m1[5],m1[6]).cross(axis2.set(m2[0],m2[1],m2[2])), diff) &&
-        testOverlap(box1, box2, axis.set(m1[4],m1[5],m1[6]).cross(axis2.set(m2[4],m2[5],m2[6])), diff) &&
-        testOverlap(box1, box2, axis.set(m1[4],m1[6],m1[6]).cross(axis2.set(m2[8],m2[9],m2[10])), diff) &&
+      var bestSingleAxis = smallestIndex;
 
-        testOverlap(box1, box2, axis.set(m1[8],m1[9],m1[10]).cross(axis2.set(m2[0],m2[1],m2[2])), diff) &&
-        testOverlap(box1, box2, axis.set(m1[8],m1[9],m1[10]).cross(axis2.set(m2[4],m2[5],m2[6])), diff) &&
-        testOverlap(box1, box2, axis.set(m1[8],m1[9],m1[10]).cross(axis2.set(m2[8],m2[9],m2[10])), diff)
-      );
+      // perpendicular axes
+      if (!testOverlap(box1, box2, getAxis(box1, 0, axis).cross(getAxis(box2, 0, axis2)), diff, 6)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 0, axis).cross(getAxis(box2, 1, axis2)), diff, 7)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 0, axis).cross(getAxis(box2, 2, axis2)), diff, 8)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 1, axis).cross(getAxis(box2, 0, axis2)), diff, 9)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 1, axis).cross(getAxis(box2, 1, axis2)), diff, 10)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 1, axis).cross(getAxis(box2, 2, axis2)), diff, 11)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 2, axis).cross(getAxis(box2, 0, axis2)), diff, 12)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 2, axis).cross(getAxis(box2, 1, axis2)), diff, 13)) return false;
+      if (!testOverlap(box1, box2, getAxis(box1, 2, axis).cross(getAxis(box2, 2, axis2)), diff, 14)) return false;
       
       // Separating axis theorem returned positive overlap, generate contacts
-      if (overlapping) {
+      if (false) {
         // check box1's vertices against box2
         for (var i = 0; i < 8; i++) {
           box1.body.localToWorldPos(box1.getCorner(i, corner));
           var contact = elation.physics.colliders.helperfuncs.vertex_box(corner, box2);
           if (contact) {
+            contact.bodies = [box1, box2];
             contacts.push(contact);
           }
         }
@@ -294,6 +334,7 @@ elation.extend("physics.colliders.helperfuncs", new function() {
           box1.body.localToWorldPos(box1.getCorner(i, corner));
           var contact = elation.physics.colliders.helperfuncs.vertex_box(corner, box2);
           if (contact) {
+            contact.bodies = [box1, box2];
             contacts.push(contact);
           }
         }
@@ -304,10 +345,23 @@ elation.extend("physics.colliders.helperfuncs", new function() {
           var edge = box1.getEdge(i);
         }
         */
-        console.log(contacts);
+        //console.log(contacts);
+        return contacts;
+      } else {
+        var contact = false;
+        if (smallestIndex < 3) {
+          contact = fillPointFaceBoxBox(box1, box2, diff, smallestIndex, smallestPenetration);
+        } else if (smallestIndex < 6) {
+          contact = fillPointFaceBoxBox(box1, box2, diff.multiplyScalar(-1), smallestIndex - 3, smallestPenetration);
+        } else {
+          console.log('uh oh hard part', smallestIndex, smallestPenetration, box1, box2);
+        }
+
+        if (contact) {
+          contacts.push(contact);
+        }
         return contacts;
       }
-      return false;
     }
   }();
 
@@ -385,12 +439,12 @@ elation.extend("physics.colliders.helperfuncs", new function() {
           contact = new elation.physics.contact({
             normal: cylinder.body.localToWorldDir(normal).normalize(), 
             point: cylinder.body.localToWorldPos(capline.clone()), // allocate point
-            penetration: penetration,
+            penetration: -penetration / 2,
             bodies: [cylinder.body, sphere.body]
           });
           contacts.push(contact);
         }
-        console.log(d, spherepos.toArray(), capline.toArray());
+        //console.log(d, spherepos.toArray(), capline.toArray());
       }
       //console.log(type, contact.penetration, contact);
       return contacts;
@@ -471,7 +525,7 @@ elation.extend("physics.colliders.sphere", function(body, args) {
         contacts = elation.physics.colliders.helperfuncs.sphere_plane(this, other, contacts);
         break;
       case 'box':
-        contacts = elation.physics.colliders.helperfuncs.sphere_box(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.box_sphere(other, this, contacts);
         break;
       case 'cylinder':
         contacts = elation.physics.colliders.helperfuncs.sphere_cylinder(this, other, contacts);
@@ -532,7 +586,7 @@ elation.extend("physics.colliders.box", function(body, args) {
     if (other instanceof elation.physics.colliders.plane) {
       contacts = elation.physics.colliders.helperfuncs.box_plane(this, other, contacts);
     } else if (other instanceof elation.physics.colliders.sphere) {
-      contacts = elation.physics.colliders.helperfuncs.sphere_box(other, this, contacts);
+      contacts = elation.physics.colliders.helperfuncs.box_sphere(this, other, contacts);
     } else if (other instanceof elation.physics.colliders.box) {
       contacts = elation.physics.colliders.helperfuncs.box_box(this, other, contacts);
     } else if (other instanceof elation.physics.colliders.cylinder) {
@@ -634,6 +688,9 @@ elation.extend("physics.contact", function(contactargs) {
   this.relativePositions = [];
   this.inertialMoments = [];
   this.impulses = [];
+  this.contactToWorld = new THREE.Matrix4();
+  this.worldToContact = new THREE.Matrix4();
+  this.initialized = false;
 
   this._tmpmat = new THREE.Matrix4();
 
@@ -646,8 +703,9 @@ elation.extend("physics.contact", function(contactargs) {
    */
   this.resolve = function(t, a, b) {
     this.restitution = this.bodies[0].restitution * this.bodies[1].restitution;
-    if (!this.contactToWorld) {
+    if (!this.initialized) {
       this.calculateInternals(t);
+      this.initialized = true;
     }
     this.applyPositionChange(a, b);
     this.applyVelocityChange(a, b);
@@ -666,6 +724,7 @@ elation.extend("physics.contact", function(contactargs) {
       this.normal.normalize();
       //var c1 = this.normal.clone().cross(new THREE.Vector3(0,0,1));
       //var c2 = this.normal.clone().cross(new THREE.Vector3(0,1,0));
+      var normal = this.normal;
       c1.set(0,0,1).cross(this.normal);
       c2.set(0,1,0).cross(this.normal);
       var tangent = (c1.lengthSq() > c2.lengthSq() ? c1 : c2);
@@ -685,6 +744,7 @@ elation.extend("physics.contact", function(contactargs) {
    * Calculate velocity relative to contact point, taking into account angular velocity
    */
   this.calculateLocalVelocity = function(index, duration) {
+    // TODO - optimize local scratch variables
     var velocity = new THREE.Vector3();
     var accvel= new THREE.Vector3();
     var body = this.bodies[index];
@@ -695,7 +755,7 @@ elation.extend("physics.contact", function(contactargs) {
 
     // Calculate how much velocity is due to the previous frame's acceleration
     accvel.copy(body.lastacceleration).multiplyScalar(duration).applyMatrix4(this.worldToContact);
-    //accvel.y = 0;
+    accvel.y = 0;
     velocity.add(accvel);
     
     return velocity;
@@ -704,6 +764,7 @@ elation.extend("physics.contact", function(contactargs) {
    * Calculate what the new relative velocities should be after resolving the collision
    */
   this.calculateDesiredDeltaVelocity = function(duration) {
+    // TODO - optimize local scratch variables
     var velocityFromAccel = 0;
     var lastaccel = new THREE.Vector3();
 
@@ -715,10 +776,9 @@ elation.extend("physics.contact", function(contactargs) {
     }
 
     var restitution = this.restitution;
-    if (Math.abs(this.velocity.y) < 0.025) { // FIXME - velocity threshold should be configurable
+    if (Math.abs(this.velocity.y) < 0.25) { // FIXME - velocity threshold should be configurable
       restitution = 0;
     }
-
     this.desiredDeltaVelocity = -this.velocity.y - restitution * (this.velocity.y - velocityFromAccel);
     //console.log('desiredDeltaV: ' + this.desiredDeltaVelocity);
   }
@@ -750,8 +810,7 @@ elation.extend("physics.contact", function(contactargs) {
     var impulsiveTorque = new THREE.Vector3();
 
     return function(velocityChange, rotationChange) {
-      // determine new velocities
-      var impulse = this.calculateFrictionlessImpulse();
+      var impulse = (this.friction == 0 ? this.calculateFrictionlessImpulse() : this.calculateFrictionImpulse());
       impulse.applyMatrix4(this.contactToWorld);
 
       if (this.bodies[0] && this.bodies[0].mass > 0) {
@@ -790,11 +849,17 @@ elation.extend("physics.contact", function(contactargs) {
         }
       }
       
-      impulse.y = this.desiredDeltaVelocity / deltaVelocity;
+      impulse.set(0, this.desiredDeltaVelocity / deltaVelocity, 0);
 
       return impulse;
     }
-  }()
+  }();
+
+  this.calculateFrictionImpulse = function() {
+    return function() {
+      var impulse = new THREE.Vector3();
+    }
+  }();
 
   this.applyPositionChange = function() {
     // closure scratch variables
@@ -810,15 +875,15 @@ elation.extend("physics.contact", function(contactargs) {
           linearMove = [],
           angularInertia = [],
           angularMove = [],
-          totalInertia = 0;
+          totalInertia = 0,
+          totalMass = 0;
 
       if (!linearChange) {
       }
 
-      var totalMass = 0;
       for (var i = 0; i < this.bodies.length; i++) {
         var body = this.bodies[i];
-        if (body) {
+        if (body && body.mass > 0) {
           angularInertiaWorld.crossVectors(this.relativePositions[i], this.normal);
           angularInertiaWorld.applyMatrix4(this.inertialMoments[i]);
           angularInertiaWorld.cross(this.relativePositions[i]);
@@ -869,6 +934,7 @@ elation.extend("physics.contact", function(contactargs) {
             angularChange[i].multiplyScalar(angularMove[i] / angularInertia[i]);
           }
 
+          // Velocity change is easier - it's just the linear movement along the contact normal
           linearChange[i].copy(this.normal).multiplyScalar(linearMove[i]);
           this.impulses[i] = linearChange[i];
           this.bodies[i].position.add(linearChange[i]);
