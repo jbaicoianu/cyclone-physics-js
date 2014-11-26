@@ -53,7 +53,6 @@ elation.extend("physics.forces.static", function(body, args) {
   this.force = args.force || (args instanceof THREE.Vector3 ? args : new THREE.Vector3());
   this.point = args.point || false;
   this.absolute = args.absolute || false
-  this.sleeping = false;
 
   this._tmpvec = new THREE.Vector3();
   this._tmpvec2 = new THREE.Vector3();
@@ -83,11 +82,13 @@ elation.extend("physics.forces.static", function(body, args) {
     }
     elation.events.fire({type: 'physics_force_update', element: this});
   }
+  this.sleepstate = function() {
+    return (this.force.lengthSq() <= 1e-6);
+  }
 });
 elation.extend("physics.forces.friction", function(body, args) {
   this.friction = args;
   this.force = new THREE.Vector3();
-  this.sleeping = false;
 
   this.apply = function() {
     this.force.set(0,0,0);
@@ -110,6 +111,9 @@ elation.extend("physics.forces.friction", function(body, args) {
     var v0 = Math.sqrt((a * dist) / (.5 * mass));
 
     return v0;
+  }
+  this.sleepstate = function() {
+    return !(this.friction > 1e-6 && body.velocity.lengthSq() > 1e-6);
   }
 });
 elation.extend("physics.forces.drag", function(body, args) {
@@ -267,8 +271,6 @@ elation.extend("physics.forces.spring", function(body, args) {
   this.restlength = args.restlength || 1;
   this.bungee = args.bungee || false;
   this.force = new THREE.Vector3();
-  //this.sleeping = false;
-  Object.defineProperty(this, 'sleeping', { get: this.getsleepstate });
 
   var _tmpvec1 = new THREE.Vector3();
   var _tmpvec2 = new THREE.Vector3();
