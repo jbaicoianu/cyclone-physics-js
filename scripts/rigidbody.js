@@ -46,7 +46,7 @@ elation.extend("physics.rigidbody", function(args) {
 
     this.state.forces = false;
     for (var i = 0, l = this.forces.length; i < l; i++) {
-      this.state.forces = this.state.forces || this.forces[i].sleeping;
+      this.state.forces = this.state.forces || (typeof this.forces[i].sleepstate == 'function' ? !this.forces[i].sleepstate() : true);
     }
     this.state.accelerating = (this.acceleration && this.acceleration.lengthSq() > lambda);
     this.state.moving = (this.velocity && this.velocity.lengthSq() > lambda);
