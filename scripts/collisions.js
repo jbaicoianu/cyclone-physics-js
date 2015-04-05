@@ -707,8 +707,16 @@ elation.extend("physics.contact", function(contactargs) {
       this.calculateInternals(t);
       this.initialized = true;
     }
-    this.applyPositionChange(a, b);
-    this.applyVelocityChange(a, b);
+    var events = elation.events.fire({type: 'physics_collide', element: this.bodies[0], data: this});
+    events.concat(elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
+    var handleEvent = true
+    if (events.length > 0) {
+      handleEvent = events.reduce(function(a, b) { return a && b.returnValue; }, true)
+    }
+    if (handleEvent) {
+      this.applyPositionChange(a, b);
+      this.applyVelocityChange(a, b);
+    }
   }
   /**
    * Generate a transform matrix which represents the collision's local coordinate space
@@ -731,7 +739,7 @@ elation.extend("physics.contact", function(contactargs) {
       tangent.normalize().negate();
       binormal.copy(tangent).cross(this.normal);
 
-      this.contactToWorld = new THREE.Matrix4(
+      this.contactToWorld = new THREE.Matrix4().set(
         tangent.x, this.normal.x, binormal.x, 0,
         tangent.y, this.normal.y, binormal.y, 0,
         tangent.z, this.normal.z, binormal.z, 0,
