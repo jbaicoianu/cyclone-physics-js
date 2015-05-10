@@ -420,7 +420,7 @@ elation.extend("physics.colliders.helperfuncs", new function() {
           // straight-on collision with end cap
           var point = capline.clone().multiplyScalar(d); // allocate point
           point.y = sign * cylinder.height / 2;
-          var penetration = spherepos.y - point.y - sphere.radius;
+          var penetration = spherepos.distanceTo(point) - sphere.radius;
           
           contact = new elation.physics.contact({
             normal: cylinder.body.localToWorldDir(up.clone().multiplyScalar(sign)).normalize(), // allocate normal
@@ -434,12 +434,12 @@ elation.extend("physics.colliders.helperfuncs", new function() {
           capline.multiplyScalar(cylinder.radius);
           capline.y = sign * cylinder.height / 2;
           var normal = new THREE.Vector3().subVectors(spherepos, capline); // allocate normal
-          var penetration = normal.length();
+          var penetration = normal.length() - sphere.radius;
           normal.divideScalar(penetration);
           contact = new elation.physics.contact({
             normal: cylinder.body.localToWorldDir(normal).normalize(), 
             point: cylinder.body.localToWorldPos(capline.clone()), // allocate point
-            penetration: -penetration / 2,
+            penetration: -penetration,
             bodies: [cylinder.body, sphere.body]
           });
           contacts.push(contact);
