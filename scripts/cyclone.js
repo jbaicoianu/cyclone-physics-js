@@ -1,4 +1,4 @@
-elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "physics.collisions"], function() {
+elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions"], function() {
   elation.extend("physics.system", function(args) {
     this.physicsmatrix = new THREE.Matrix4().set(1, 1, .5, 0, 0, 1, 1, 0, 0, 0, 1, 0);
     this.active = false;
@@ -34,7 +34,7 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
         this.processor.iterate(objects, t);
 
         // step 3: detect contacts
-        var collisions = this.processor.collide(t)
+        var collisions = this.processor.collide(t);
         if (collisions && collisions.length > 0) {
           // step 4: resolve collisions
           this.processor.resolve(t, collisions);
