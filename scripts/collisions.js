@@ -739,12 +739,15 @@ elation.extend("physics.contact", function(contactargs) {
       tangent.normalize().negate();
       binormal.copy(tangent).cross(this.normal);
 
-      this.contactToWorld = new THREE.Matrix4().set(
-        tangent.x, this.normal.x, binormal.x, 0,
-        tangent.y, this.normal.y, binormal.y, 0,
-        tangent.z, this.normal.z, binormal.z, 0,
-        0, 0, 0, 1
-      );
+      this.contactToWorld = new THREE.Matrix4().identity();
+      if (tangent.lengthSq() > 0) {
+        this.contactToWorld.set(
+          tangent.x, this.normal.x, binormal.x, 0,
+          tangent.y, this.normal.y, binormal.y, 0,
+          tangent.z, this.normal.z, binormal.z, 0,
+          0, 0, 0, 1
+        );
+      }
       this.worldToContact = new THREE.Matrix4().getInverse(this.contactToWorld);
     }
   }();
