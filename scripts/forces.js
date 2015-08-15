@@ -7,7 +7,6 @@ elation.extend("physics.forces.gravity", function(body, args) {
   this.accel = new THREE.Vector3();
   this.gravsum = new THREE.Vector3();
   this._tmpvec = new THREE.Vector3();
-  this.sleeping = false;
 
   this.apply = function() {
     if (this.others.length > 0) {
@@ -46,6 +45,9 @@ elation.extend("physics.forces.gravity", function(body, args) {
     var m = this.others[0].mass;
     this._tmpvec.multiplyScalar(Math.sqrt((m * m * 6.67384e-11) / ((m + body.mass) * point.length())));
     return this._tmpvec;
+  }
+  this.sleepstate = function() {
+    return (this.gravsum.lengthSq() <= 1e-6);
   }
   this.update(args);
 });
