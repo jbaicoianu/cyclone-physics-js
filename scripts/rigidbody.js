@@ -285,6 +285,10 @@ elation.require([], function() {
     this.localToWorldDir = function(dir) {
       return dir.applyQuaternion(this.orientationWorld);
     }
+    // local direction to parent direction
+    this.localToParentDir = function(dir) {
+      return dir.applyQuaternion(this.orientation);
+    }
 
     this.isPotentiallyColliding = function() {
       // closure scratch vars
