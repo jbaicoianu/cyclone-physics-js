@@ -2,9 +2,11 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
   elation.extend("physics.system", function(args) {
     this.physicsmatrix = new THREE.Matrix4().set(1, 1, .5, 0, 0, 1, 1, 0, 0, 0, 1, 0);
     this.active = false;
-    this.objects = [];
+    this.children = [];
     this.processor = false;
     this.args = args || {};
+    this.position = this.positionWorld = new THREE.Vector3();
+    this.orientation = this.orientationWorld = new THREE.Quaternion();
 
     this.init = function() {
       if (this.args.autostart !== false) {
@@ -22,13 +24,13 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     }
     this.step = function(t) {
       // If there are no objects we have nothing to do
-      if (!this.active || this.objects.length == 0) return;
+      if (!this.active || this.children.length == 0) return;
       
       // update matrix with new time values
       this.physicsmatrix.elements[4] = this.physicsmatrix.elements[9] = t;
       this.physicsmatrix.elements[8] = .5 * t * t;
       // step 1: update forces for each object, gather array of active objects
-      var objects = this.processor.update(this.objects, t);
+      var objects = this.processor.update(this.children, t);
       if (objects.length > 0) {
         // step 2: run physics simulation on all active objects
         this.processor.iterate(objects, t);
@@ -42,20 +44,23 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
       }
     }
     this.add = function(obj) {
-      this.objects.push(obj);
+      //obj.parent = this;
+console.log('added the guy', obj);
+      this.children.push(obj);
     }
     this.remove = function(obj) {
-      if (obj.parent) {
+      if (obj.parent && obj.parent != this) {
         obj.parent.remove(obj);
+        obj.parent = false;
       } else {
-        var i = this.objects.indexOf(obj);
+        var i = this.children.indexOf(obj);
         if (i != -1) {
-          this.objects.splice(i, 1);
+          this.children.splice(i, 1);
         }
       }
     }
     this.getObjects = function(objects, all) {
-      if (typeof objects == 'undefined') objects = this.objects;
+      if (typeof objects == 'undefined') objects = this.children;
       if (typeof all == 'undefined') all = [];
 
       for (var i = 0; i < objects.length; i++) {
@@ -65,6 +70,24 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
         }
       }
       return all;
+    }
+    this.worldToLocalPos = function(point) {
+      return point;
+    }
+    this.localToWorldPos = function(point) {
+      return point;
+    }
+    this.localToParentPos = function(point) {
+      return point;
+    }
+    this.parentToLocalPos = function(point) {
+      return point;
+    }
+    this.worldToLocalDir = function(dir) {
+      return dir;
+    }
+    this.localToWorldDir = function(dir) {
+      return dir;
     }
     this.init();
   });
