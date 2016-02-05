@@ -79,7 +79,11 @@ elation.require([], function() {
         if (!contacts) contacts = [];
 
         // Get sphere position in world and in the box's coordinate space
-        sphere.body.localToWorldPos(centerWorld.set(0,0,0));
+        if (sphere.offset) {
+          sphere.body.localToWorldPos(centerWorld.copy(sphere.offset));
+        } else {
+          sphere.body.localToWorldPos(centerWorld.set(0,0,0));
+        }
         box.body.worldToLocalPos(center.copy(centerWorld));
 
         // Early out if any of the axes are separating
@@ -510,11 +514,175 @@ elation.require([], function() {
         return contacts;
       }
     }();
+
+    /* capsule helpers */
+    this.capsule_sphere = function() {
+      // closure scratch variables
+      var spherepos = new THREE.Vector3();
+      var start = new THREE.Vector3();
+      var end = new THREE.Vector3();
+      var point = new THREE.Vector3();
+      var normal = new THREE.Vector3();
+
+      return function(capsule, sphere, contacts) {
+        var radius = capsule.radius + sphere.radius;
+        capsule.body.localToWorldPos(start.set(0,-capsule.length/2,0));
+        capsule.body.localToWorldPos(end.set(0,capsule.length/2,0));
+        sphere.body.localToWorldPos(point.set(0,0,0));
+
+        var closest = elation.physics.colliders.helperfuncs.closest_point_on_line(start, end, point);
+        normal.subVectors(closest, point);
+        var distance = normal.length();
+  //console.log(distance, radius, capsule.radius, sphere.radius);
+        if (distance <= radius) {
+          normal.divideScalar(distance);
+          var contact = new elation.physics.contact({
+            normal: normal.clone(),
+            point: closest.add(normal.multiplyScalar(capsule.radius)),
+            penetration: radius - distance,
+            bodies: [capsule.body, sphere.body]
+          });
+          contacts.push(contact);
+        }
+        return contacts;
+      }
+    }();
+
+    this.capsule_box = function() {
+      // closure scratch variables
+      var boxpos = new THREE.Vector3();
+      var start = new THREE.Vector3();
+      var end = new THREE.Vector3();
+      var point = new THREE.Vector3();
+      var normal = new THREE.Vector3();
+      var rigid = new elation.physics.rigidbody();
+
+      return function(capsule, box, contacts) {
+
+        start.set(0,-capsule.length/2,0);
+        end.set(0,capsule.length/2,0);
+        if (capsule.offset) {
+          start.add(capsule.offset);
+          end.add(capsule.offset);
+        }
+        capsule.body.localToWorldPos(start);
+        capsule.body.localToWorldPos(end);
+        //box.body.localToWorldPos(point.set(0,0,0));
+
+        // FIXME - ugly hack using two spheres
+        // TODO - use proper sphere-swept line calculations
+        rigid.velocity = capsule.body.velocity;
+        rigid.orientation = capsule.body.orientation;
+        rigid.position = start;
+
+        var sphere = new elation.physics.colliders.sphere(rigid, {radius: capsule.radius});
+        var head = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
+
+        rigid.position = end;
+        var sphere2 = new elation.physics.colliders.sphere(rigid, {radius: capsule.radius});
+        var tail = elation.physics.colliders.helperfuncs.box_sphere(box, sphere2);
+
+        if (head && tail) {
+          head[0].bodies[1] = capsule.body;
+          tail[0].bodies[1] = capsule.body;
+          //contacts.push(head[0].penetration > tail[0].penetration ? head[0] : tail[0]);
+          contacts.push(head[0]);
+        } else if (head) {
+          head[0].bodies[1] = capsule.body;
+          contacts.push(head[0]);
+        } else if (tail) {
+          tail[0].point.y -= capsule.length;
+          tail[0].bodies[1] = capsule.body;
+          contacts.push(tail[0]);
+        }
+
+        return contacts;
+      }
+    }();
+    this.capsule_cylinder = function() {
+      // closure scratch variables
+      var cylpos = new THREE.Vector3();
+      var start = new THREE.Vector3();
+      var end = new THREE.Vector3();
+      var point = new THREE.Vector3();
+      var normal = new THREE.Vector3();
+
+      return function(capsule, cylinder, contacts) {
+
+        capsule.body.localToWorldPos(start.set(0,-capsule.length/2,0));
+        capsule.body.localToWorldPos(end.set(0,capsule.length/2,0));
+        //box.body.localToWorldPos(point.set(0,0,0));
+
+        var sphere = new elation.physics.colliders.sphere(capsule.body, {radius: capsule.radius});
+        sphere.offset = new THREE.Vector3(0,-capsule.length/2,0);
+        if (capsule.offset) sphere.offset.add(capsule.offset);
+        var head = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
+        sphere.offset = new THREE.Vector3(0,capsule.length/2,0);
+        if (capsule.offset) sphere.offset.add(capsule.offset);
+        var tail = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
+        if (head && tail) {
+          head[0].bodies[1] = capsule.body;
+          tail[0].bodies[1] = capsule.body;
+          contacts.push(head[0].penetration > tail[0].penetration ? head[0] : tail[0]);
+        } else if (head) {
+          head[0].bodies[1] = capsule.body;
+          contacts.push(head[0]);
+        } else if (tail) {
+          tail[0].bodies[1] = capsule.body;
+          contacts.push(tail[0]);
+        }
+
+        return contacts;
+      }
+    }();
+
+    this.closest_point_on_sphere = function(point, center, radius) {
+      var closest = point.clone().sub(center);
+      closest.normalize().multiplyScalar(radius);
+      return closest;
+    }
+    this.closest_point_on_line = function() {
+      var line = new THREE.Vector3(),
+          proj = new THREE.Vector3();
+
+      return function(start, end, point) {
+        line.copy(end).sub(start);
+        var lengthSq = line.lengthSq();
+        if (lengthSq < 1e-6) { // zero-length line
+          return start.clone();
+        }
+
+        // Project point on to line
+        proj.subVectors(point, start);
+        var t = proj.dot(line) / lengthSq;
+        if (t < 0) { // beyond the start
+          return start.clone();
+        } else if (t > 1) { // beyond the end
+          return end.clone();
+        }
+
+        // Find point perpendicular to line segment
+        proj.copy(start).add(line.multiplyScalar(t));
+        return proj.clone();
+      }
+    }();
+    this.distance_to_line = function(start, end, point) {
+      return this.closest_point_on_line(start, end, point).distanceTo(point);
+    }
   });
+
+
+  /*
+   * =========
+   * colliders
+   * =========
+   */
+ 
   elation.extend("physics.colliders.sphere", function(body, args) {
     this.type = 'sphere';
     this.body = body;
     this.radius = args.radius || args;
+    this.offset = args.offset || false;
 
     this.getContacts = function(other, contacts) {
       if (!contacts) contacts = [];
@@ -530,6 +698,9 @@ elation.require([], function() {
           break;
         case 'cylinder':
           contacts = elation.physics.colliders.helperfuncs.sphere_cylinder(this, other, contacts);
+          break;
+        case 'capsule':
+          contacts = elation.physics.colliders.helperfuncs.capsule_sphere(other, this, contacts);
           break;
         default:
           console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
@@ -679,6 +850,47 @@ elation.require([], function() {
       return this.momentInverse;
     }
   });
+  elation.extend("physics.colliders.capsule", function(body, args) {
+    this.type = 'capsule';
+    if (!args) args = {};
+    this.body = body;
+    this.radius = args.radius;
+    this.length = args.length;
+    this.offset = args.offset;
+
+    this.getContacts = function(other, contacts) {
+      if (!contacts) contacts = [];
+      if (other instanceof elation.physics.colliders.plane) {
+        contacts = elation.physics.colliders.helperfuncs.capsule_plane(this, other, contacts);
+      } else if (other instanceof elation.physics.colliders.sphere) {
+        contacts = elation.physics.colliders.helperfuncs.capsule_sphere(this, other, contacts);
+      } else if (other instanceof elation.physics.colliders.box) {
+        contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts);
+  /*
+      } else if (other instanceof elation.physics.colliders.cylinder) {
+        contacts = elation.physics.colliders.helperfuncs.capsule_cylinder(this, other, contacts);
+      } else {
+        console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
+  */
+      }
+      return contacts;
+    }
+    this.getInertialMoment = function() {
+      this.momentInverse = new THREE.Matrix4();
+      var rsq = this.radius * this.radius,
+          hsq = this.length * this.length,
+          m = this.body.mass,
+          i1 = (m * hsq / 12) + (m * rsq / 4),
+          i2 = m * rsq / 2;
+      this.momentInverse.set(
+        i1, 0, 0, 0, 
+        0, i2, 0, 0, 
+        0, 0, i1, 0, 
+        0, 0, 0, 1);
+      return this.momentInverse;
+    }
+  });
+
   elation.extend("physics.contact", function(contactargs) {
     this.bodies = [];
     this.friction = contactargs.friction || 0;
