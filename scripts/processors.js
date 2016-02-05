@@ -264,6 +264,47 @@ elation.require([], function() {
     }
   }, false, elation.physics.processor.base);
 
+  elation.extend("physics.processor.worker", function(parent) {
+    elation.physics.processor.base.call(this, parent);
+
+    this.worker = new WebWorker('cyclone-worker.js');
+
+    this.iterate = function(objects, t) {
+      if (t == 0) return; // paused, do nothing
+      for (var i = 0; i < objects.length; i++) {
+        objects[i].updateAcceleration();
+        if (objects[i].state.accelerating || objects[i].state.moving) {
+          this.iterateAxis(objects[i], 'x', t);
+          this.iterateAxis(objects[i], 'y', t);
+          this.iterateAxis(objects[i], 'z', t);
+        }
+        if (objects[i].state.rotating) {
+          this.iterateRotation(objects[i], t);
+        }
+        objects[i].updateState();
+        if (!objects[i].state.sleeping) {
+          elation.events.fire({type: "physics_update", element: objects[i], data: t});
+        }
+      }
+    }
+    this.iterateAxis = function(obj, axis, t) {
+      this._tmpvec.set(obj.position[axis], obj.velocity[axis], obj.acceleration[axis]);
+      this._tmpvec.applyMatrix4(this.parent.physicsmatrix);
+      obj.position[axis] = this._tmpvec.x;
+      obj.velocity[axis] = this._tmpvec.y * Math.pow(obj.linearDamping, t);
+    }
+    this.iterateRotation = function(obj, t) {
+      this._tmpvec.copy(obj.angularacceleration).multiplyScalar(t);
+      obj.angular.add(this._tmpvec).multiplyScalar(Math.pow(obj.angularDamping, t));
+
+      this._tmpvec.copy(obj.angular);
+      var theta = this._tmpvec.length();
+      this._tmpvec.divideScalar(theta);
+      this._tmpquat.setFromAxisAngle(this._tmpvec, theta*t);
+      obj.orientation.multiply(this._tmpquat);
+    }
+  }, false, elation.physics.processor.base);
+
   elation.extend("physics.processor.gpu", function(parent) {
     elation.physics.processor.base.call(this, parent);
 
