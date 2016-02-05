@@ -229,8 +229,9 @@ elation.require([], function() {
     elation.physics.processor.base.call(this, parent);
     this.iterate = function(objects, t) {
       if (t == 0) return; // paused, do nothing
+      var framedata = {};
       for (var i = 0; i < objects.length; i++) {
-        objects[i].updateAcceleration();
+        objects[i].updateAcceleration(framedata);
         if (objects[i].state.accelerating || objects[i].state.moving) {
           this.iterateAxis(objects[i], 'x', t);
           this.iterateAxis(objects[i], 'y', t);
@@ -239,7 +240,7 @@ elation.require([], function() {
         if (objects[i].state.rotating) {
           this.iterateRotation(objects[i], t);
         }
-        objects[i].updateState();
+        objects[i].updateState(framedata);
         if (!objects[i].state.sleeping) {
           elation.events.fire({type: "physics_update", element: objects[i], data: t});
         }
