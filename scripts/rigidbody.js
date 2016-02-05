@@ -64,12 +64,12 @@ elation.require([], function() {
       this.force_accumulator.set(0,0,0);
       this.torque_accumulator.set(0,0,0);
     }
-    this.updateAcceleration = function() {
+    this.updateAcceleration = function(framedata) {
       this.lastacceleration.copy(this.acceleration);
       if (this.forces.length > 0) {
         this.clearAccumulators();
         for (var k in this.forces) {
-          this.forces[k].apply();
+          this.forces[k].apply(framedata);
         }
         this.acceleration.copy(this.force_accumulator.divideScalar(this.mass));
         if (this.collider && this.collider.momentInverse) {
@@ -114,7 +114,7 @@ elation.require([], function() {
       if (typeof elation.physics.forces[type] == 'function') {
         force = new elation.physics.forces[type](this, args);
         this.forces.push(force);
-        this.updateAcceleration();
+        this.updateAcceleration({});
         this.updateState();
         //console.log('added new force', force);
       } else {
