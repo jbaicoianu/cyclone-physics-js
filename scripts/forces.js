@@ -269,9 +269,9 @@ elation.require([], function() {
     this.otherconnectionpoint = args.otherconnectionpoint || new THREE.Vector3(0,0,0);
     this.other = args.other || false;
     this.anchor = args.anchor || false;
-    this.strength = args.strength || 1;
+    this.strength = elation.utils.any(args.strength, 1);
     this.midpoint = args.midpoint || false;
-    this.restlength = args.restlength || 1;
+    this.restlength = elation.utils.any(args.restlength, 0);
     this.bungee = args.bungee || false;
     this.force = new THREE.Vector3();
 
@@ -287,7 +287,7 @@ elation.require([], function() {
         this.force.divideScalar(2);
       }
       //var magnitude = Math.abs(this.force.length() - this.restlength) * this.strength;
-      var magnitude = this.force.length();
+      var magnitude = this.force.length() + 1e-5;
       if (this.bungee && magnitude <= this.restlength) {
         this.force.set(0,0,0);
       } else {
@@ -297,6 +297,9 @@ elation.require([], function() {
         this.force = this.body.worldToLocalDir(this.force);
         
         this.body.applyForceAtPoint(this.force, this.connectionpoint, true);
+        if (this.other && this.other.mass) {
+          this.other.applyForceAtPoint(this.force.multiplyScalar(-1), this.otherconnectionpoint, true);
+        }
       }
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
@@ -374,31 +377,60 @@ elation.require([], function() {
 
   elation.extend("physics.forces.electrostatic", function(body, args) {
     this.force = new THREE.Vector3();
-    this.charge = args.charge || args || 1;
+    this.charge = elation.utils.any(args.charge, args, 1);
     this.sleeping = false;
 
     this.apply = (function() {
       var tmpvec = new THREE.Vector3();
       // TODO - the constant Ke is actually dependent on the electric permittivity of the material the charges are immersed in, but this is good enough for most cases
       var Ke = 8.9875517873681764e9; 
-      return function() {
+      return function(framedata) {
         var nearby = body.parent.children;
 if (!nearby) {
   return;
 }
+        if (typeof framedata['electrostaticID'] == 'undefined') {
+          framedata['electrostaticID'] = 0;
+          framedata['electrostaticMatrix'] = {};
+          framedata['electrostaticSeen'] = {};
+        }
+        var thisID = framedata['electrostaticID'];
+        var matrix = framedata['electrostaticMatrix'];
+        var seen = framedata['electrostaticSeen'];
+
         this.force.set(0,0,0);
+        var mycharge = Ke * this.charge;
         for (var i = 0; i < nearby.length; i++) {
           if (nearby[i] === body) continue;
-          var forces = nearby[i].getForces('electrostatic');
-          if (forces) {
-            tmpvec.subVectors(body.position, nearby[i].position);
-            var rsq = tmpvec.lengthSq();
-//console.log(rsq, body.position.toArray(), nearby[i].position.toArray());
-
-            this.force.add(tmpvec.normalize().multiplyScalar(Ke * this.charge * forces[0].charge / rsq));
+          if (nearby[i].position.distanceToSquared(body.position) > 100*100) {
+            //continue;
           }
+/*
+          var pairID = Math.min(thisID, i) + '_' + Math.max(thisID, i);
+          if (matrix[pairID]) {
+            //console.log('found an existing solution', pairID, matrix[pairID]);
+              //matrix[pairID] = tmpvec.toArray();
+              this.force.add(tmpvec.set(matrix[pairID][0], matrix[pairID][1], matrix[pairID][2]).multiplyScalar(-1));
+          } else {
+*/
+            var forces = nearby[i].getForces('electrostatic');
+            if (forces) {
+              tmpvec.subVectors(body.position, nearby[i].position);
+              var r = tmpvec.length();
+              var rsq = Math.pow(r + 1e6, 2);
+              //var rsq = tmpvec.lengthSq() + 1e6;
+  //console.log(rsq, body.position.toArray(), nearby[i].position.toArray());
+
+              //this.force.add(tmpvec.normalize().multiplyScalar(mycharge * forces[0].charge / rsq));
+              //this.force.add(tmpvec.normalize().multiplyScalar(Ke * this.charge * forces[0].charge / rsq));
+              this.force.add(tmpvec.multiplyScalar((mycharge * forces[0].charge) / (rsq * r)));
+
+              //matrix[pairID] = tmpvec.toArray();
+            }
+//          }
   //console.log(this.force.toArray().toString());
         }
+        framedata['electrostaticID']++;
         body.applyForce(this.force);
         elation.events.fire({type: 'physics_force_apply', element: this});
       }
