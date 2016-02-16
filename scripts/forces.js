@@ -303,13 +303,16 @@ elation.require([], function() {
       }
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
-    this.update = function() {
+    this.update = function(updateargs) {
+      for (var k in updateargs) {
+        this[k] = updateargs[k];
+      }
       elation.events.fire({type: 'physics_force_update', element: this});
     }
     this.sleepstate = function() {
       var lws = this.body.localToWorldPos(_tmpvec1.copy(this.connectionpoint));
       var ows = (this.other ? this.other.localToWorldPos(_tmpvec2.copy(this.otherconnectionpoint)) : this.anchor);
-      return (lws.distanceToSq(ows) <= 1e6);
+      return (lws.distanceToSquared(ows) <= 1e6);
     }
   });
   elation.extend("physics.forces.magnet", function(body, args) {
@@ -377,7 +380,8 @@ elation.require([], function() {
 
   elation.extend("physics.forces.electrostatic", function(body, args) {
     this.force = new THREE.Vector3();
-    this.charge = elation.utils.any(args.charge, args, 1);
+    this.charge = elation.utils.any(args.charge, 1);
+    this.maxdist = elation.utils.any(args.maxdist, Infinity);
     this.sleeping = false;
 
     this.apply = (function() {
@@ -386,9 +390,8 @@ elation.require([], function() {
       var Ke = 8.9875517873681764e9; 
       return function(framedata) {
         var nearby = body.parent.children;
-if (!nearby) {
-  return;
-}
+        if (!nearby) return;
+
         if (typeof framedata['electrostaticID'] == 'undefined') {
           framedata['electrostaticID'] = 0;
           framedata['electrostaticMatrix'] = {};
@@ -401,25 +404,24 @@ if (!nearby) {
         this.force.set(0,0,0);
         var mycharge = Ke * this.charge;
         for (var i = 0; i < nearby.length; i++) {
-          if (nearby[i] === body) continue;
-          if (nearby[i].position.distanceToSquared(body.position) > 100*100) {
-            //continue;
+          var other = nearby[i];
+          if (other === body) continue;
+          if (other.position.distanceToSquared(body.position) > this.maxdist * this.maxdist) {
+            continue;
           }
-/*
           var pairID = Math.min(thisID, i) + '_' + Math.max(thisID, i);
           if (matrix[pairID]) {
-            //console.log('found an existing solution', pairID, matrix[pairID]);
+            console.log('found an existing solution', pairID, matrix[pairID]);
               //matrix[pairID] = tmpvec.toArray();
-              this.force.add(tmpvec.set(matrix[pairID][0], matrix[pairID][1], matrix[pairID][2]).multiplyScalar(-1));
+            this.force.add(tmpvec.fromArray(matrix[pairID]).multiplyScalar(1));
           } else {
-*/
-            var forces = nearby[i].getForces('electrostatic');
+            var forces = other.getForces('electrostatic');
             if (forces) {
-              tmpvec.subVectors(body.position, nearby[i].position);
+              tmpvec.subVectors(body.position, other.position);
               var r = tmpvec.length();
               var rsq = Math.pow(r + 1e6, 2);
               //var rsq = tmpvec.lengthSq() + 1e6;
-  //console.log(rsq, body.position.toArray(), nearby[i].position.toArray());
+  //console.log(rsq, body.position.toArray(), other.position.toArray());
 
               //this.force.add(tmpvec.normalize().multiplyScalar(mycharge * forces[0].charge / rsq));
               //this.force.add(tmpvec.normalize().multiplyScalar(Ke * this.charge * forces[0].charge / rsq));
@@ -427,7 +429,7 @@ if (!nearby) {
 
               //matrix[pairID] = tmpvec.toArray();
             }
-//          }
+          }
   //console.log(this.force.toArray().toString());
         }
         framedata['electrostaticID']++;
@@ -436,8 +438,8 @@ if (!nearby) {
       }
     })();
     this.update = function(updateargs) {
-      if (updateargs.charge) {
-        this.charge = updateargs.charge;
+      for (var k in updateargs) {
+        this[k] = updateargs[k];
       }
       elation.events.fire({type: 'physics_force_update', element: this});
     }
