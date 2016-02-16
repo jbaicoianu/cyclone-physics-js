@@ -44,8 +44,7 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
       }
     }
     this.add = function(obj) {
-      //obj.parent = this;
-console.log('added the guy', obj);
+      obj.parent = this;
       this.children.push(obj);
     }
     this.remove = function(obj) {
