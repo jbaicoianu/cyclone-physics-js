@@ -14,7 +14,7 @@ elation.require([], function() {
         this.gravsum.set(0,0,0);
         for (var i = 0; i < this.others.length; i++) {
           if (this.others[i]) {
-            this._tmpvec.sub(this.others[i].position, body.position);
+            this._tmpvec.subVectors(this.others[i].position, body.position);
             var rsq = this._tmpvec.lengthSq();
             var r = Math.sqrt(rsq);
             var a = 6.67384e-11 * this.others[i].mass / rsq;
@@ -41,7 +41,7 @@ elation.require([], function() {
       elation.events.fire({type: 'physics_force_update', element: this});
     }
     this.getOrbitalVelocity = function(point) {
-      this._tmpvec.copy(point).normalize().crossSelf(new THREE.Vector3(0,1,0)).normalize();
+      this._tmpvec.copy(point).normalize().cross(new THREE.Vector3(0,1,0)).normalize();
   //foo.multiplyScalar(2 * Math.PI * this.position.length());
       var m = this.others[0].mass;
       this._tmpvec.multiplyScalar(Math.sqrt((m * m * 6.67384e-11) / ((m + body.mass) * point.length())));
@@ -382,6 +382,7 @@ elation.require([], function() {
     this.force = new THREE.Vector3();
     this.charge = elation.utils.any(args.charge, 1);
     this.maxdist = elation.utils.any(args.maxdist, Infinity);
+    this.others = args.others || false;
     this.sleeping = false;
 
     this.apply = (function() {
@@ -389,7 +390,7 @@ elation.require([], function() {
       // TODO - the constant Ke is actually dependent on the electric permittivity of the material the charges are immersed in, but this is good enough for most cases
       var Ke = 8.9875517873681764e9; 
       return function(framedata) {
-        var nearby = body.parent.children;
+        var nearby = this.others;// || body.parent.children;
         if (!nearby) return;
 
         if (typeof framedata['electrostaticID'] == 'undefined') {
