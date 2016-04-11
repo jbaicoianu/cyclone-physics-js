@@ -32,6 +32,7 @@ elation.extend("physics.constraints.axis", function(body, args) {
   this.axis = args.axis;
   this.min = args.min || false;
   this.max = args.max || false;
+  this.enabled = true;
 
   var ortho = new THREE.Vector3(),
       trans = new THREE.Vector3(),
@@ -40,6 +41,8 @@ elation.extend("physics.constraints.axis", function(body, args) {
       neworient = new THREE.Quaternion();
 
   this.apply = function(contactlist) {
+    if (!this.enabled) return false;
+
     //ortho.set(0,0,-1); // FIXME - figure out orthogonal vector based on this.axis
     ortho.set(0,0,1); // FIXME - figure out orthogonal vector based on this.axis
     trans.copy(ortho).applyQuaternion(body.orientation);
