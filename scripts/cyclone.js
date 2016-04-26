@@ -7,6 +7,10 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.args = args || {};
     this.position = this.positionWorld = new THREE.Vector3();
     this.orientation = this.orientationWorld = new THREE.Quaternion();
+    this.substep = elation.utils.any(this.args.substep, true);
+    this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 1/60);
+    this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 12);
+    
 
     this.init = function() {
       if (this.args.autostart !== false) {
@@ -25,22 +29,33 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.step = function(t) {
       // If there are no objects we have nothing to do
       if (!this.active || this.children.length == 0) return;
-      
-      // update matrix with new time values
-      this.physicsmatrix.elements[4] = this.physicsmatrix.elements[9] = t;
-      this.physicsmatrix.elements[8] = .5 * t * t;
-      // step 1: update forces for each object, gather array of active objects
-      var objects = this.processor.update(this.children, t);
-      if (objects.length > 0) {
-        // step 2: run physics simulation on all active objects
-        this.processor.iterate(objects, t);
 
-        // step 3: detect contacts
-        var collisions = this.processor.collide(t);
-        if (collisions && collisions.length > 0) {
-          // step 4: resolve collisions
-          this.processor.resolve(t, collisions);
+      var steps = 1;
+      if (this.substep && t > this.substepMaxDelta) {
+        steps = Math.min(Math.round(t / this.substepMaxDelta), this.substepMaxSteps);
+      }
+      
+      var step = 0;
+      while (t > 0) {
+        var steptime = (step < steps ? Math.min(t, this.substepMaxDelta) : t);
+        // update matrix with new time values
+        this.physicsmatrix.elements[4] = this.physicsmatrix.elements[9] = steptime;
+        this.physicsmatrix.elements[8] = .5 * steptime * steptime;
+        // step 1: update forces for each object, gather array of active objects
+        var objects = this.processor.update(this.children, steptime);
+        if (objects.length > 0) {
+          // step 2: run physics simulation on all active objects
+          this.processor.iterate(objects, steptime);
+
+          // step 3: detect contacts
+          var collisions = this.processor.collide(steptime);
+          if (collisions && collisions.length > 0) {
+            // step 4: resolve collisions
+            this.processor.resolve(steptime, collisions);
+          }
         }
+        t -= steptime;
+        step++;
       }
     }
     this.add = function(obj) {
