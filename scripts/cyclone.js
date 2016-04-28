@@ -8,7 +8,7 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.position = this.positionWorld = new THREE.Vector3();
     this.orientation = this.orientationWorld = new THREE.Quaternion();
     this.substep = elation.utils.any(this.args.substep, true);
-    this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 1/60);
+    this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 1/30);
     this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 12);
     
 
