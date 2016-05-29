@@ -1,0 +1,25 @@
+{
+  "name": "cyclone-physics",
+  "description": "Pure Javascript physics engine based on http://procyclone.com/",
+  "version": "1.0.0",
+  "main": "",
+  "author": "James Baicoianu",
+  "license": "MIT",
+  "scripts": {
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jbaicoianu/cyclone-physics"
+  },
+  "dependencies": {
+    "elation": ">=2.0.0"
+  },
+  "keywords": [
+    "elation",
+    "physics",
+    "browser",
+    "node"
+  ]
+}
+
+
