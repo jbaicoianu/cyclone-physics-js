@@ -385,7 +385,7 @@ elation.require([], function() {
             rSphere = sphere.radius;
         //var type = 'none';
 
-        if (spherepos.y + rSphere < -halfh || spherepos.y - rSphere > halfh) {
+        if (spherepos.y + rSphere - cylinder.offset.y < -halfh || spherepos.y - rSphere - cylinder.offset.y > halfh) {
           // far enough above that we definitely won't hit
           return false;
         }
@@ -396,7 +396,7 @@ elation.require([], function() {
           return false;
         }
         var contact = false;
-        if (spherepos.y > -halfh && spherepos.y < halfh) {
+        if (spherepos.y - cylinder.offset.y > -halfh && spherepos.y - cylinder.offset.y < halfh) {
           // Colliding with side of cylinder (center of sphere is between cylinder ends)
           var penetration = (Math.sqrt(lsq) - rSphere - rCylinder) / 2;
           var normal = spherepos.clone(); // allocate normal
@@ -417,6 +417,7 @@ elation.require([], function() {
           // Colliding with end caps of cylinder
 
           up.set(0,1,0);
+          spherepos.sub(cylinder.offset);
           capline.crossVectors(up, spherepos).cross(up).normalize();
           var d = spherepos.dot(capline);
           var sign = (Math.abs(spherepos.y) / spherepos.y);
@@ -819,6 +820,7 @@ elation.require([], function() {
     this.body = body;
     this.radius = args.radius;
     this.height = args.height;
+    this.offset = args.offset || new THREE.Vector3();
 
     this.getContacts = function(other, contacts) {
       if (!contacts) contacts = [];
