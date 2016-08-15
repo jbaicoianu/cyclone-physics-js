@@ -67,4 +67,17 @@ elation.require([], function() {
       return false;
     }
   });
+  // speed constraint restricts the object to a maximum speed
+  elation.extend("physics.constraints.speed", function(body, args) {
+    this.maxspeed = (typeof args != 'undefined' ? args : Infinity);
+    this.enabled = true;
+    this.apply = function(contactlist) {
+      if (!this.enabled) return false;
+      var speedSq = body.velocity.lengthSq(),
+          maxSpeedSq = this.maxspeed * this.maxspeed;
+      if (speedSq > maxSpeedSq) {
+        body.velocity.normalize().multiplyScalar(this.maxspeed);
+      }
+    }
+  });
 });
