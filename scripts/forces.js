@@ -282,7 +282,7 @@ elation.require([], function() {
       var lws = this.body.localToWorldPos(_tmpvec1.copy(this.connectionpoint));
       var ows = (this.other ? this.other.localToWorldPos(_tmpvec2.copy(this.otherconnectionpoint)) : this.anchor);
 
-      this.force.subVectors(lws, ows);
+      this.body.worldToLocalDir(this.force.subVectors(lws, ows));
       if (this.midpoint) {
         this.force.divideScalar(2);
       }
