@@ -247,10 +247,15 @@ elation.require([], function() {
       }
     }
     this.iterateAxis = function(obj, axis, t) {
-      this._tmpvec.set(obj.position[axis], obj.velocity[axis], obj.acceleration[axis]);
-      this._tmpvec.applyMatrix4(this.parent.physicsmatrix);
-      obj.position[axis] = this._tmpvec.x;
-      obj.velocity[axis] = this._tmpvec.y * Math.pow(obj.linearDamping, t);
+      var pos = obj.position[axis],
+          vel = obj.velocity[axis],
+          accel = obj.acceleration[axis];
+
+      vel += accel * t;
+      pos += vel * t;
+
+      obj.position[axis] = pos;
+      obj.velocity[axis] = vel * Math.pow(obj.linearDamping, t);
     }
     this.iterateRotation = function(obj, t) {
       this._tmpvec.copy(obj.angularacceleration).multiplyScalar(t);
