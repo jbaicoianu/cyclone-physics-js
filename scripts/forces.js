@@ -273,6 +273,7 @@ elation.require([], function() {
     this.midpoint = args.midpoint || false;
     this.restlength = elation.utils.any(args.restlength, 0);
     this.bungee = args.bungee || false;
+    this.hard = args.hard || false;
     this.force = new THREE.Vector3();
 
     var _tmpvec1 = new THREE.Vector3();
@@ -289,6 +290,8 @@ elation.require([], function() {
       //var magnitude = Math.abs(this.force.length() - this.restlength) * this.strength;
       var magnitude = this.force.length() + 1e-5;
       if (this.bungee && magnitude <= this.restlength) {
+        this.force.set(0,0,0);
+      } else if (this.hard && magnitude <= this.restlength) {
         this.force.set(0,0,0);
       } else {
         this.force.divideScalar(magnitude);
