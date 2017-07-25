@@ -1037,9 +1037,9 @@ elation.require([], function() {
       }
       var events = elation.events.fire({type: 'physics_collide', element: this.bodies[0], data: this});
       events.concat(elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
-      var handleEvent = true
+      var handleEvent = true;
       if (events.length > 0) {
-        handleEvent = events.reduce(function(a, b) { return a && b.returnValue; }, true)
+        handleEvent = events.reduce(function(a, b) { return a && b.returnValue; }, true);
       }
       if (handleEvent) {
         this.applyPositionChange(a, b);
