@@ -152,9 +152,8 @@ elation.require([], function() {
       this.force.set(0,0,0);
       if (this.drag > 0) {
         var v = body.velocity.length();
-        this.force.copy(body.velocity).multiplyScalar(-.5*this.drag*v*body.mass);
+        this.force.copy(body.velocity).multiplyScalar(-.5*this.drag*v);
       }
-      //return [this.force, false];
       body.applyForce(this.force);
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
