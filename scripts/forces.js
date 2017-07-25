@@ -119,6 +119,30 @@ elation.require([], function() {
       return !(this.friction > 1e-6 && body.velocity.lengthSq() > 1e-6);
     }
   });
+  elation.extend("physics.forces.anisotropicfriction", function(body, args) {
+    this.friction = args;
+    this.force = new THREE.Vector3();
+
+    this.apply = function() {
+      this.force.set(0,0,0);
+      if (this.friction) {
+        var relvel = body.worldToLocalDir(body.velocity.clone());
+        this.force.x = relvel.x * -1 * this.friction.x * body.mass;
+        this.force.y = relvel.y * -1 * this.friction.y * body.mass;
+        this.force.z = relvel.z * -1 * this.friction.z * body.mass;
+        body.localToWorldDir(this.force);
+      }
+      body.applyForce(this.force);
+      elation.events.fire({type: 'physics_force_apply', element: this});
+    }
+    this.update = function(updateargs) {
+      this.friction = updateargs;
+      elation.events.fire({type: 'physics_force_update', element: this});
+    }
+    this.sleepstate = function() {
+      return !(this.friction.lengthSq() > 1e-6 && body.velocity.lengthSq() > 1e-6);
+    }
+  });
   elation.extend("physics.forces.drag", function(body, args) {
     this.drag = 0;
     this.force = new THREE.Vector3();
