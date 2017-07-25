@@ -459,6 +459,9 @@ elation.require([], function() {
     this.sphere_cylinder = function(sphere, cylinder, contacts) {
       return this.cylinder_sphere(cylinder, sphere, contacts);
     }
+    this.sphere_triangle = function(sphere, triangle, contacts) {
+      return this.triangle_sphere(triangle, sphere, contacts);
+    }
     this.cylinder_box = function(cylinder, box, contacts) {
       //return this.cylinder_sphere(cylinder, sphere, contacts);
     }
@@ -636,6 +639,66 @@ elation.require([], function() {
         return contacts;
       }
     }();
+    this.triangle_sphere = function() {
+      // closure scratch variables
+      var spherepos = new THREE.Vector3(),
+          scalednormal = new THREE.Vector3(),
+          scaledvelocity = new THREE.Vector3(),
+          planeIntersectionPoint = new THREE.Vector3();
+
+      // Reference: http://www.peroxide.dk/papers/collision/collision.pdf
+
+      return function(triangle, sphere, contacts) {
+        // FIXME - this is potentially going to run needlessly thousands of times. We should be able to cache world position
+        sphere.body.localToWorldPos(spherepos.set(0,0,0));
+        var dist = triangle.distanceTo(spherepos);
+        if (dist > sphere.radius) {
+          return contacts;
+        }
+
+        // TODO - check against inside of triangle + edges
+
+        var normalDotVel = triangle.normal.dot(sphere.body.velocity);
+        var t0 = (1 - dist) / normalDotVel,
+            t1 = (-1 - dist) / normalDotVel;
+
+        if ((t0 < 0 || t0 > sphere.radius) &&
+            (t1 < 0 || t1 > sphere.radius)) {
+          return contacts;
+        }
+
+        scalednormal.copy(triangle.normal).multiplyScalar(sphere.radius);
+        scaledvelocity.copy(sphere.body.velocity).multiplyScalar(t0);
+        planeIntersectionPoint.copy(spherepos).sub(scalednormal).add(scaledvelocity);
+        if (triangle.containsPoint(planeIntersectionPoint)) {
+          var contact = new elation.physics.contact({
+            normal: triangle.normal.clone(), // allocate normal
+            point: planeIntersectionPoint.clone(), // allocate point
+            penetration: t0 * sphere.body.velocity.length(),
+            bodies: [triangle.body, sphere.body]
+          });
+          contacts.push(contact);
+          return contacts;
+        }
+
+        var A = scaledvelocity.multiplyVectors(sphere.body.velocity, sphere.body.velocity);
+        //var B = velocity.multiply(spherepos.clone().sub();
+
+      }
+    }();
+    this.mesh_sphere = function() {
+      // closure scratch variables
+      var spherepos = new THREE.Vector3();
+
+      return function(mesh, sphere, contacts) {
+        //sphere.body.localToWorldPos(spherepos.set(0,0,0));
+        for (var i = 0; i < mesh.triangles.length; i++) {
+          elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], sphere, contacts);
+        }
+        return contacts;
+      }
+    }();
+
 
     this.closest_point_on_sphere = function(point, center, radius) {
       var closest = point.clone().sub(center);
@@ -890,6 +953,55 @@ elation.require([], function() {
         0, 0, i1, 0, 
         0, 0, 0, 1);
       return this.momentInverse;
+    }
+  });
+  elation.extend("physics.colliders.triangle", function(body, args) {
+    this.type = 'triangle';
+    if (!args) args = {};
+    this.body = body;
+    this.p1 = args[0];
+    this.p2 = args[1];
+    this.p3 = args[2];
+
+    this.normal = this.p2.clone().sub(this.p1).cross(this.p3.clone().sub(p1)).normalize();
+
+    var origin = this.p1,
+        normal = this.normal;
+    this.offset = -(normal.x * origin.x + normal.y * origin.y + normal.z * origin.z);
+
+    this.getContacts = function(other, contacts) {
+      if (!contacts) contacts = [];
+      if (other instanceof elation.physics.colliders.sphere) {
+        contacts = elation.physics.colliders.helperfuncs.triangle_sphere(this, other, contacts);
+  /*
+      } else if (other instanceof elation.physics.colliders.box) {
+        contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts);
+      } else if (other instanceof elation.physics.colliders.cylinder) {
+        contacts = elation.physics.colliders.helperfuncs.capsule_cylinder(this, other, contacts);
+      } else {
+        console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
+  */
+      }
+      return contacts;
+    }
+    this.getInertialMoment = function() {
+      this.momentInverse = new THREE.Matrix4();
+      var rsq = this.radius * this.radius,
+          hsq = this.length * this.length,
+          m = this.body.mass,
+          i1 = (m * hsq / 12) + (m * rsq / 4),
+          i2 = m * rsq / 2;
+      // FIXME - this is not the inertial moment for a triangle
+      this.momentInverse.set(
+        i1, 0, 0, 0,
+        0, i2, 0, 0,
+        0, 0, i1, 0,
+        0, 0, 0, 1);
+      return this.momentInverse;
+    }
+
+    this.distanceTo = function(point) {
+      return this.normal.dot(point) + this.offset;
     }
   });
 
