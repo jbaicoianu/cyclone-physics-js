@@ -746,6 +746,7 @@ elation.require([], function() {
     this.type = 'sphere';
     this.body = body;
     this.radius = args.radius || args;
+    this.scale = args.scale || new THREE.Vector3(1,1,1),
     this.offset = args.offset || false;
 
     this.getContacts = function(other, contacts) {
