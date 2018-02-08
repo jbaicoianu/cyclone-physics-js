@@ -8,7 +8,7 @@
   "scripts": {},
   "repository": {
     "type": "git",
-    "url": "https://github.com/jbaicoianu/cyclone-physics"
+    "url": "https://github.com/jbaicoianu/cyclone-physics-js"
   },
   "dependencies": {
     "elation": ">=2.0.0"
