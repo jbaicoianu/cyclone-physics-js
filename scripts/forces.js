@@ -6,6 +6,7 @@ elation.require([], function() {
   elation.extend("physics.forces.gravity", function(body, args) {
     this.others = [];
     this.accel = new THREE.Vector3();
+    this.timescale = args.timescale || 1;
     this.gravsum = new THREE.Vector3();
     this._tmpvec = new THREE.Vector3();
 
@@ -28,6 +29,7 @@ elation.require([], function() {
       }
       //console.log("Gravity force: " + [this.gravsum.x, this.gravsum.y, this.gravsum.z] + " m/s^2");
       //return [this.gravsum, false];
+      this.gravsum.multiplyScalar(this.timescale);
       body.applyForce(this.gravsum);
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
@@ -36,7 +38,12 @@ elation.require([], function() {
         //this.gravsum.copy(updateargs).multiplyScalar(body.mass);
         this.accel.copy(updateargs);
       } else {
-        this.others = updateargs;
+        if (typeof updateargs.timescale != 'undefined') {
+          this.timescale = updateargs.timescale;
+        }
+        if (typeof updateargs.others != 'undefined') {
+          this.others = updateargs.others;
+        }
       }
       elation.events.fire({type: 'physics_force_update', element: this});
     }
