@@ -37,7 +37,7 @@ elation.require([], function() {
       this.updateState();
     }
     this.updateState = function() {
-      var lambda = 0.00001;
+      var lambda = 1e-20;
       this.processConstraints();
 
       if (this.parent) {
