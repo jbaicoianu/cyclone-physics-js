@@ -16,6 +16,7 @@ elation.require([], function() {
     this.linearDamping = 1;
     this.angularDamping = 1;
     this.restitution = 1;
+    this.timescale = 1;
     this.paused = false;
 
     this.parent = false;
@@ -357,6 +358,15 @@ elation.require([], function() {
         wasConstrained = wasConstrained || this.constraints[i].apply(contactlist);
       }
       return wasConstrained;
+    }
+    this.getTimescale = function() {
+      var scale = this.timescale,
+          p = this.parent;
+      while (p) {
+        scale *= p.timescale;
+        p = p.parent;
+      }
+      return scale;
     }
     this.init();
   });

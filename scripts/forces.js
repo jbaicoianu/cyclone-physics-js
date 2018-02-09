@@ -30,7 +30,6 @@ elation.require([], function() {
       }
       //console.log("Gravity force: " + [this.gravsum.x, this.gravsum.y, this.gravsum.z] + " m/s^2");
       //return [this.gravsum, false];
-      this.gravsum.multiplyScalar(this.timescale);
       body.applyForce(this.gravsum);
       elation.events.fire({type: 'physics_force_apply', element: this});
     }

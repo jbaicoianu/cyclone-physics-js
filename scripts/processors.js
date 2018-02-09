@@ -232,13 +232,14 @@ elation.require([], function() {
       var framedata = {};
       for (var i = 0; i < objects.length; i++) {
         objects[i].updateAcceleration(framedata);
+        var scaledtime = objects[i].getTimescale() * t;
         if (objects[i].state.accelerating || objects[i].state.moving) {
-          this.iterateAxis(objects[i], 'x', t);
-          this.iterateAxis(objects[i], 'y', t);
-          this.iterateAxis(objects[i], 'z', t);
+          this.iterateAxis(objects[i], 'x', scaledtime);
+          this.iterateAxis(objects[i], 'y', scaledtime);
+          this.iterateAxis(objects[i], 'z', scaledtime);
         }
         if (objects[i].state.rotating) {
-          this.iterateRotation(objects[i], t);
+          this.iterateRotation(objects[i], scaledtime);
         }
         objects[i].updateState(framedata);
         if (!objects[i].state.sleeping) {

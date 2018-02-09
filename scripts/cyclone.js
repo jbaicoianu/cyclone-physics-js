@@ -10,6 +10,7 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.substep = elation.utils.any(this.args.substep, true);
     this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 1/10);
     this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 6);
+    this.timescale = 1;
     
 
     this.init = function() {
