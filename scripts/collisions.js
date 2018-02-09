@@ -1035,12 +1035,17 @@ elation.require([], function() {
         this.calculateInternals(t);
         this.initialized = true;
       }
+      // Fire events for both objects, and combine them into one array
       var events = elation.events.fire({type: 'physics_collide', element: this.bodies[0], data: this});
-      events.concat(elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
+      events.push.apply(events, elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
+
+      // After we've executed all of our collision handlers, check to see if any of them has prevented the default handling
       var handleEvent = true;
       if (events.length > 0) {
-        handleEvent = events.reduce(function(a, b) { return a && b.returnValue; }, true);
+        handleEvent = events.reduce(function(a, b) { return a && b.returnValue; }, true)
       }
+
+      // If no event handlers handled this event, use our default collision response
       if (handleEvent) {
         this.applyPositionChange(a, b);
         this.applyVelocityChange(a, b);
