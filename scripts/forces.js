@@ -14,11 +14,12 @@ elation.require([], function() {
       if (this.others.length > 0) {
         this.gravsum.set(0,0,0);
         for (var i = 0; i < this.others.length; i++) {
-          if (this.others[i]) {
+          // Calculate gravity force for all objects in the set, excluding ourselves
+          if (this.others[i] && this.others[i] !== body) {
             this._tmpvec.subVectors(this.others[i].position, body.position);
             var rsq = this._tmpvec.lengthSq();
             var r = Math.sqrt(rsq);
-            var a = 6.67384e-11 * this.others[i].mass / rsq;
+            var a = (6.67384e-11 * body.mass * this.others[i].mass) / rsq;
             this.gravsum.x += a * this._tmpvec.x / r;
             this.gravsum.y += a * this._tmpvec.y / r;
             this.gravsum.z += a * this._tmpvec.z / r;
