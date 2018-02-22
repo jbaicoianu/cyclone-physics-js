@@ -12,19 +12,7 @@ elation.require([], function() {
 
     this.apply = function() {
       if (this.others.length > 0) {
-        this.gravsum.set(0,0,0);
-        for (var i = 0; i < this.others.length; i++) {
-          // Calculate gravity force for all objects in the set, excluding ourselves
-          if (this.others[i] && this.others[i] !== body) {
-            this._tmpvec.subVectors(this.others[i].position, body.position);
-            var rsq = this._tmpvec.lengthSq();
-            var r = Math.sqrt(rsq);
-            var a = (6.67384e-11 * body.mass * this.others[i].mass) / rsq;
-            this.gravsum.x += a * this._tmpvec.x / r;
-            this.gravsum.y += a * this._tmpvec.y / r;
-            this.gravsum.z += a * this._tmpvec.z / r;
-          }
-        }
+        this.gravsum.copy(this.getForceAtPoint(body.position, body.mass));
       } else {
         this.gravsum.copy(this.accel).multiplyScalar(body.mass);
       }
@@ -54,6 +42,32 @@ elation.require([], function() {
       this._tmpvec.multiplyScalar(Math.sqrt((m * m * 6.67384e-11) / ((m + body.mass) * point.length())));
       return this._tmpvec;
     }
+    this.getForceAtPoint = (function() {
+      var _gravsum = new THREE.Vector3();
+      return function(point, mass) {
+        if (typeof mass == 'undefined') {
+          mass = body.mass;
+        }
+        if (this.others.length > 0) {
+          _gravsum.set(0,0,0);
+          for (var i = 0; i < this.others.length; i++) {
+            // Calculate gravity force for all objects in the set, excluding ourselves
+            if (this.others[i] && this.others[i] !== body) {
+              this._tmpvec.subVectors(this.others[i].position, point);
+              var rsq = this._tmpvec.lengthSq();
+              var r = Math.sqrt(rsq);
+              var a = (6.67384e-11 * mass * this.others[i].mass) / rsq;
+              _gravsum.x += a * this._tmpvec.x / r;
+              _gravsum.y += a * this._tmpvec.y / r;
+              _gravsum.z += a * this._tmpvec.z / r;
+            }
+          }
+        } else {
+          _gravsum.copy(this.accel);
+        }
+        return _gravsum;
+      }
+    })();
     this.sleepstate = function() {
       return (this.gravsum.lengthSq() <= 1e-6);
     }
