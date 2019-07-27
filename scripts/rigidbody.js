@@ -4,6 +4,7 @@ elation.require([], function() {
     this.positionWorld = new THREE.Vector3();
     this.orientation = new THREE.Quaternion();
     this.orientationWorld = new THREE.Quaternion();
+    this.scale = new THREE.Vector3(1, 1, 1);
     this.velocity = new THREE.Vector3();
     this.acceleration = new THREE.Vector3();
     this.angular = new THREE.Vector3();
@@ -289,6 +290,17 @@ elation.require([], function() {
     // local direction to parent direction
     this.localToParentDir = function(dir) {
       return dir.applyQuaternion(this.orientation);
+    }
+    this.localToWorldScale = function(scale) {
+      scale = this.localToParentScale(scale);
+      if (this.parent) {
+        scale = this.parent.localToWorldScale(scale);
+      }
+      return scale;
+    }
+    this.localToParentScale = function(scale) {
+      if (!scale) scale = new THREE.Vector3(1, 1, 1);
+      return scale.multiply(this.scale);
     }
 
     this.isPotentiallyColliding = function() {
