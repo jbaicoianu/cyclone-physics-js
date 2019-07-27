@@ -104,6 +104,9 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.localToWorldDir = function(dir) {
       return dir;
     }
+    this.localToWorldScale = function(scale) {
+      return scale;
+    }
     this.init();
   });
 });
