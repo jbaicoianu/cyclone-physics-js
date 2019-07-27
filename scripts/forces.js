@@ -5,7 +5,7 @@ elation.require([], function() {
 
   elation.extend("physics.forces.gravity", function(body, args) {
     this.others = [];
-    this.accel = new THREE.Vector3();
+    this.accel = (args instanceof THREE.Vector3 ? args : new THREE.Vector3());
     this.timescale = args.timescale || 1;
     this.gravsum = new THREE.Vector3();
     this._tmpvec = new THREE.Vector3();
@@ -165,7 +165,7 @@ elation.require([], function() {
     }
   });
   elation.extend("physics.forces.drag", function(body, args) {
-    this.drag = 0;
+    this.drag = args;
     this.force = new THREE.Vector3();
     this.sleeping = false;
 
