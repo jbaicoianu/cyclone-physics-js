@@ -1,3 +1,4 @@
+'use strict';
 /**
  * colliders 
  */
@@ -17,7 +18,7 @@ elation.require([], function() {
         obj1.body.localToWorldPos(thispos.set(0,0,0));
         obj2.body.localToWorldPos(otherpos.set(0,0,0));
 
-        midline.subVectors(thispos, otherpos),
+        midline.subVectors(otherpos, thispos),
         size = midline.length();
         midline.divideScalar(size);
 
@@ -30,7 +31,7 @@ elation.require([], function() {
           contact = new elation.physics.contact({
             normal: normal,
             point: point,
-            penetration: penetration,
+            penetration: -penetration,
             bodies: [obj1.body, obj2.body]
           });
           contacts.push(contact);
@@ -154,6 +155,39 @@ elation.require([], function() {
       }
     }();
 
+    this.vertex_vertex = function(v1, v2, contacts) {
+      if (!contacts) contacts = [];
+      let distance = v1.distanceTo(v2);
+      if (distance < 1e6) {
+        var contact = new elation.physics.contact({
+          point: v1.clone(), // allocate point
+          //normal: normal.clone(), // allocate normal
+          penetration: distance
+        });
+        contacts.push(contact);
+      }
+      return contacts;
+    };
+
+    this.vertex_sphere = function() {
+      let localvert = new THREE.Vector3();
+      return function(vertex, sphere, contacts) {
+        if (!contacts) contacts = [];
+        sphere.body.worldToLocal(localvert.copy(vertex));
+
+        let distance = localvert.length();
+        if (distance <= sphere.body.radius) {
+          var contact = new elation.physics.contact({
+            point: vertex.clone(), // allocate point
+            normal: sphere.body.localToWorldDir(localvert.clone().divideScalar(distance)), // allocate normal
+            penetration: distance
+          });
+          contacts.push(contact);
+        }
+        return contacts;
+      };
+    }();
+
     this.vertex_box = function() {
       var relpos = new THREE.Vector3();
       return function(vertex, box, contacts) {
@@ -192,6 +226,18 @@ elation.require([], function() {
       }
     }();
 
+    this.vertex_triangle = function(vertex, triangle, contacts) {
+      if (triangle.containsPoint(vertex)) {
+        var contact = new elation.physics.contact({
+          point: vertex.clone(), // allocate point
+          normal: triangle.normal.clone(), // allocate normal, FIXME - transform into world coords
+          penetration: 0,
+          bodies: [vertex.body, triangle.body]
+        });
+        contacts.push(contact);
+      }
+      return contacts;
+    };
     this.vertex_plane = function(vertex, plane) {
       // FIXME - Only one contact possible...should this return a single-element array to be consistent?
       var contact = false;
@@ -379,6 +425,8 @@ elation.require([], function() {
 
       return function(cylinder, sphere, contacts) {
         if (!contacts) contacts = [];
+        // Transform sphere position into cylinder's coordinate space
+        // TODO - account for offset
         cylinder.body.worldToLocalPos(sphere.body.localToWorldPos(spherepos.set(0,0,0)));
         var halfh = cylinder.height / 2,
             rCylinder = cylinder.radius;
@@ -430,7 +478,7 @@ elation.require([], function() {
             
             contact = new elation.physics.contact({
               normal: cylinder.body.localToWorldDir(up.clone().multiplyScalar(sign)).normalize(), // allocate normal
-              point: cylinder.body.localToWorldPos(point),
+              point: cylinder.body.localToWorldPos(point).add(cylinder.offset),
               penetration: penetration,
               bodies: [cylinder.body, sphere.body]
             });
@@ -439,13 +487,13 @@ elation.require([], function() {
             //type = 'edge';
             capline.multiplyScalar(cylinder.radius);
             capline.y = sign * cylinder.height / 2;
-            var normal = new THREE.Vector3().subVectors(spherepos, capline); // allocate normal
-            var penetration = normal.length() - sphere.radius;
-            normal.divideScalar(penetration);
+            var normal = new THREE.Vector3().subVectors(capline, spherepos); // allocate normal
+            var penetration = sphere.radius - normal.length();
+            normal.divideScalar(-penetration);
             contact = new elation.physics.contact({
-              normal: cylinder.body.localToWorldDir(normal).normalize(), 
-              point: cylinder.body.localToWorldPos(capline.clone()), // allocate point
-              penetration: -penetration,
+              normal: cylinder.body.localToWorldDir(normal).normalize().negate(), 
+              point: cylinder.body.localToWorldPos(capline.clone()).add(cylinder.offset), // allocate point
+              penetration: penetration,
               bodies: [cylinder.body, sphere.body]
             });
             contacts.push(contact);
@@ -705,8 +753,9 @@ elation.require([], function() {
           var contact = new elation.physics.contact({
             normal: triangle.normal.clone(), // allocate normal, FIXME - transform into world coords
             point: planeIntersectionPoint.clone(), // allocate point
-            penetration: -t1 * sphere.body.velocity.length() * 1/60,
-            bodies: [triangle.body, sphere.body]
+            penetration: -t1 * scaledvelocity.length(),
+            bodies: [triangle.body, sphere.body],
+            triangle: triangle
           });
           contacts.push(contact);
           return contacts;
@@ -750,23 +799,23 @@ elation.require([], function() {
 
         if (localcontacts.length > 0) {
           var closest = localcontacts[0];
-          console.log('got some local contacts!', localcontacts, localsphere.velocity);
+          //console.log('got some local contacts!', localcontacts[0].point, localcontacts[0].normal, localsphere.position, localsphere.velocity, localcontacts[0]);
           for (var i = 0; i < localcontacts.length; i++) {
-/*
             if (closest.distance > localcontacts[i].distance) {
               closest = localcontacts[i];
             }
           }
-console.log('contact is', closest);
+//console.log('contact is', closest);
 
           if (closest.bodies[0] === localsphere) {
             closest.bodies[0] = sphere.body;
           } else if (closest.bodies[1] === localsphere) {
             closest.bodies[1] = sphere.body;
           }
-
+          mesh.body.localToWorldPos(closest.point);
+          mesh.body.localToWorldDir(closest.normal);
           contacts.push(closest);
-*/
+/*
             var contact = localcontacts[i];
             if (contact.bodies[0] === localsphere) {
               contact.bodies[0] = sphere.body;
@@ -774,8 +823,11 @@ console.log('contact is', closest);
               contact.bodies[1] = sphere.body;
             }
 
+            mesh.body.localToWorldPos(contact.point);
+            mesh.body.localToWorldDir(contact.normal);
             contacts.push(contact);
           }
+*/
         }
 
         return contacts;
@@ -1054,15 +1106,32 @@ console.log('contact is', closest);
       if (this.mesh.geometry) {
         if (this.mesh.geometry instanceof THREE.BufferGeometry) {
           let positions = this.mesh.geometry.attributes.position,
-              arr = positions.array;
-          for (var i = 0; i < positions.count / 3; i++) {
-            let offset = i * 3 * 3,
-                p1 = new THREE.Vector3(arr[offset], arr[offset + 1], arr[offset + 2]),
-                p2 = new THREE.Vector3(arr[offset + 3], arr[offset + 4], arr[offset + 5]),
-                p3 = new THREE.Vector3(arr[offset + 6], arr[offset + 7], arr[offset + 8]),
-                triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
+              posarr = positions.array;
+          if (this.mesh.geometry.index) {
+            let idx = this.mesh.geometry.index,
+                idxarr = idx.array;
+            for (var i = 0; i < idx.count / 3; i++) {
+              let offset = i * 3,
+                  v1 = idxarr[offset] * 3,
+                  v2 = idxarr[offset+1] * 3,
+                  v3 = idxarr[offset+2] * 3,
+                  p1 = new THREE.Vector3(posarr[v1], posarr[v1 + 1], posarr[v1 + 2]),
+                  p2 = new THREE.Vector3(posarr[v2], posarr[v2 + 1], posarr[v2 + 2]),
+                  p3 = new THREE.Vector3(posarr[v3], posarr[v3 + 1], posarr[v3 + 2]),
+                  triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
 
-            triangles.push(triangle);
+              triangles.push(triangle);
+            }
+          } else {
+            for (var i = 0; i < positions.count / 3; i++) {
+              let offset = i * 3 * 3,
+                  p1 = new THREE.Vector3(posarr[offset], posarr[offset + 1], posarr[offset + 2]),
+                  p2 = new THREE.Vector3(posarr[offset + 3], posarr[offset + 4], posarr[offset + 5]),
+                  p3 = new THREE.Vector3(posarr[offset + 6], posarr[offset + 7], posarr[offset + 8]),
+                  triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
+
+              triangles.push(triangle);
+            }
           }
         }
       }
@@ -1095,8 +1164,12 @@ console.log('contact is', closest);
           let obj = parents[j];
           if (!bodies[obj.uuid]) {
             bodies[obj.uuid] = new elation.physics.rigidbody();
+            bodies[obj.uuid].position.copy(obj.position);
+            bodies[obj.uuid].orientation.copy(obj.quaternion);
+            bodies[obj.uuid].object = this.body.object;
             if (obj instanceof THREE.Mesh) {
               bodies[obj.uuid].setCollider('mesh', {mesh: obj });
+              //elation.events.add(bodies[obj.uuid], 'physics_collide', (ev) => elation.events.fire({type: 'physics_collide', element: this.body, event: ev}));
             }
             parent.add(bodies[obj.uuid]);
           }
@@ -1154,7 +1227,7 @@ console.log('contact is', closest);
     this.v0 = this.p2.clone().sub(this.p1);
     this.v1 = this.p3.clone().sub(this.p1);
 
-    this.normal = this.p2.clone().sub(this.p1).cross(this.p3.clone().sub(this.p1)).normalize();
+    this.normal = this.p2.clone().sub(this.p1).normalize().cross(this.p3.clone().sub(this.p1).normalize()).normalize();
 
     var origin = this.p1,
         normal = this.normal;
@@ -1192,9 +1265,23 @@ console.log('contact is', closest);
     }
 
     this.containsPoint = (function() {
+      var p1 = new THREE.Vector3();
       var v2 = new THREE.Vector3();
+      var scale = new THREE.Vector3();
       return function(point) {
-        v2.copy(point).sub(this.p1);
+        this.body.localToWorldScale(scale.set(1,1,1));
+
+        p1.copy(this.p1).multiply(scale);
+
+        this.v0.x = (this.p2.x * scale.x) - p1.x;
+        this.v0.y = (this.p2.y * scale.y) - p1.y;
+        this.v0.z = (this.p2.z * scale.z) - p1.z;
+
+        this.v1.x = (this.p3.x * scale.x) - p1.x;
+        this.v1.y = (this.p3.y * scale.y) - p1.y;
+        this.v1.z = (this.p3.z * scale.z) - p1.z;
+
+        v2.copy(point).sub(p1);
 
         let dot00 = this.v0.dot(this.v0),
             dot01 = this.v0.dot(this.v1),
