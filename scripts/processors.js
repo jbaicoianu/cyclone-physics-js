@@ -44,14 +44,12 @@ elation.require([], function() {
         for (var i = 0; i < potentials.length; i++) {
           var obj1 = potentials[i][0], obj2 = potentials[i][1];
           // Get list of all contact points between the two objects
-          var contacts = obj1.getContacts(obj2, collisions, t);
-          /*
+          var contacts = obj1.getContacts(obj2, [], t);
           if (contacts && contacts.length > 0) {
             // Resolve the deepest contact first
             var deepest = this.getDeepestContact(contacts);
             collisions.push(deepest);
           }
-          */
         }
         //console.log(potentials.length + ' potential crashes:', potentials, collisions);
       }
