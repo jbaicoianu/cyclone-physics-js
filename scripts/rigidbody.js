@@ -12,7 +12,7 @@ elation.require([], function() {
     this.forces = [];
     this.constraints = [];
     this.mass = 0;
-    this.state = {sleeping: true, accelerating: false, moving: false, rotating: false};
+    this.state = {sleeping: true, accelerating: false, moving: false, rotating: false, colliding: false};
     this.momentInverse = new THREE.Matrix4().identity();
     this.linearDamping = 1;
     this.angularDamping = 1;
@@ -28,6 +28,7 @@ elation.require([], function() {
     this.torque_accumulator = new THREE.Vector3();
     this._tmpvec = new THREE.Vector3();
     this._tmpvec2 = new THREE.Vector3();
+    this._tmpquat = new THREE.Quaternion();
     this.lastacceleration = new THREE.Vector3();
 
     this.init = function() {
@@ -44,7 +45,7 @@ elation.require([], function() {
 
       if (this.parent) {
         this.orientationWorld.multiplyQuaternions(this.parent.orientationWorld, this.orientation);
-        this.positionWorld.copy(this.position).applyQuaternion(this.parent.orientation.clone().inverse()).add(this.parent.positionWorld);
+        this.positionWorld.copy(this.position).applyQuaternion(this._tmpquat.copy(this.parent.orientation).inverse()).add(this.parent.positionWorld);
       } else {
         this.orientationWorld.copy(this.orientation).inverse();
         this.positionWorld.copy(this.position);
@@ -321,10 +322,10 @@ elation.require([], function() {
          );
       }
     }();
-    this.getContacts = function(other, collisions) {
+    this.getContacts = function(other, collisions, dt) {
       var hasContacts = false;
       if (this.collider && other.collider) {
-        hasContacts = this.collider.getContacts(other.collider, collisions);
+        hasContacts = this.collider.getContacts(other.collider, collisions, dt);
       }
       return hasContacts;
     }
