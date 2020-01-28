@@ -39,6 +39,7 @@ elation.require([], function() {
         trans = new THREE.Vector3(),
         flat = new THREE.Vector3(),
         cross = new THREE.Vector3(),
+        scaledAxis = new THREE.Vector3(),
         neworient = new THREE.Quaternion();
 
     this.apply = function(contactlist) {
@@ -47,7 +48,7 @@ elation.require([], function() {
       //ortho.set(0,0,-1); // FIXME - figure out orthogonal vector based on this.axis
       ortho.set(0,0,1); // FIXME - figure out orthogonal vector based on this.axis
       trans.copy(ortho).applyQuaternion(body.orientation);
-      flat.subVectors(trans, this.axis.clone().multiplyScalar(trans.dot(this.axis))).normalize(); // FIXME - unnecessary allocation
+      flat.subVectors(trans, scaledAxis.copy(this.axis).multiplyScalar(trans.dot(this.axis))).normalize();
       cross.crossVectors(ortho, flat);
       // FIXME - wow, what a hack
       var sign = (cross.x ? cross.x / Math.abs(cross.x) : 1) * (cross.y ? cross.y / Math.abs(cross.y) : 1) * (cross.z ? cross.z / Math.abs(cross.z) : 1);
