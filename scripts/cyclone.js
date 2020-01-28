@@ -42,18 +42,22 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
         // update matrix with new time values
         this.physicsmatrix.elements[4] = this.physicsmatrix.elements[9] = steptime;
         this.physicsmatrix.elements[8] = .5 * steptime * steptime;
+
         // step 1: update forces for each object, gather array of active objects
         var objects = this.processor.update(this.children, steptime);
         if (objects.length > 0) {
-          // step 2: run physics simulation on all active objects
-          this.processor.iterate(objects, steptime);
-
-          // step 3: detect contacts
+          // step 2: detect contacts
           var collisions = this.processor.collide(steptime);
+
+          // step 3: resolve collisions
           if (collisions && collisions.length > 0) {
-            // step 4: resolve collisions
             this.processor.resolve(steptime, collisions);
           }
+
+          // step 4: run physics simulation on all active objects
+          this.processor.iterate(objects, steptime);
+
+
         }
         t -= steptime;
         step++;
