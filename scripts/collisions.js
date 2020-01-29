@@ -9,33 +9,62 @@ elation.require([], function() {
       // closure scratch variables
       var thispos = new THREE.Vector3(),
           otherpos = new THREE.Vector3(),
-          midline = new THREE.Vector3();
+          midline = new THREE.Vector3(),
+          scaledVelocity = new THREE.Vector3(),
+          intersectionPoint = new THREE.Vector3();
 
-      return function(obj1, obj2, contacts) {
+      return function(obj1, obj2, contacts, dt) {
         if (!contacts) contacts = [];
 
         // Work in world space
         obj1.body.localToWorldPos(thispos.set(0,0,0));
         obj2.body.localToWorldPos(otherpos.set(0,0,0));
 
-        midline.subVectors(otherpos, thispos),
-        size = midline.length();
-        midline.divideScalar(size);
+        let dynamic = true; // TODO - this should either be a flag on rigid bodies, or a configurable threshold based on velocity
+        if (!dynamic) {
+          midline.subVectors(otherpos, thispos),
+          size = midline.length();
+          midline.divideScalar(size);
 
-        var normal = midline.clone(); // allocate normal
-        var point = thispos.clone().add(midline.multiplyScalar(obj1.radius)); // allocate point
+          var normal = midline.clone(); // allocate normal
+          var point = thispos.clone().add(midline.multiplyScalar(obj1.radius)); // allocate point
 
-        if (!(size <= 0 || size >= obj1.radius + obj2.radius)) {
-          var penetration = (obj1.radius + obj2.radius - size);
-          // Collision point is on the outer shell of obj1
-          contact = new elation.physics.contact({
-            normal: normal,
-            point: point,
-            penetration: -penetration,
-            bodies: [obj1.body, obj2.body]
-          });
-          contacts.push(contact);
-          //console.log('crash a sphere-sphere', contact);
+          if (!(size <= 0 || size >= obj1.radius + obj2.radius)) {
+            var penetration = (obj1.radius + obj2.radius - size);
+            // Collision point is on the outer shell of obj1
+            contact = new elation.physics.contact({
+              normal: normal,
+              point: point,
+              penetration: -penetration,
+              bodies: [obj1.body, obj2.body]
+            });
+            contacts.push(contact);
+            //console.log('crash a sphere-sphere', contact);
+          }
+        } else {
+          let r = obj1.radius + obj2.radius;
+          // FIXME - probably need to transform velocity into world coordinates as well
+          let v = scaledVelocity.copy(obj1.body.velocity).sub(obj2.body.velocity).multiplyScalar(dt);
+
+          let endpos = midline.copy(thispos).add(v);
+
+          let intersection = elation.physics.colliders.helperfuncs.line_sphere(thispos, endpos, otherpos, r, intersectionPoint);
+          if (intersection && intersection.t <= r) {
+            let t = intersection.t;
+            thispos.add(scaledVelocity.copy(obj1.body.velocity).multiplyScalar(t * dt));
+            otherpos.add(scaledVelocity.copy(obj2.body.velocity).multiplyScalar(t * dt));
+//console.log(intersection, thispos, v, otherpos, r, obj1, obj2);
+            let normal = otherpos.clone().sub(thispos).normalize(); // allocate normal
+
+            var contact = new elation.physics.contact_dynamic({
+              normal: normal,
+              point: normal.clone().multiplyScalar(obj1.radius).add(thispos), // allocate point
+              penetrationTime: intersection.t,
+              bodies: [obj1.body, obj2.body],
+            });
+            contacts.push(contact);
+            return contacts;
+          }
         }
         return contacts;
       }
@@ -45,7 +74,7 @@ elation.require([], function() {
       // closure scratch variables
       var pos = new THREE.Vector3();
 
-      return function(sphere, plane, contacts) {
+      return function(sphere, plane, contacts, dt) {
         if (!contacts) contacts = [];
         var contact = false;
         var position = sphere.body.localToWorldPos(pos.set(0,0,0));
@@ -76,7 +105,7 @@ elation.require([], function() {
           diff = new THREE.Vector3(),
           closest = new THREE.Vector3();
 
-      return function(box, sphere, contacts) {
+      return function(box, sphere, contacts, dt) {
         if (!contacts) contacts = [];
 
         // Get sphere position in world and in the box's coordinate space
@@ -126,7 +155,7 @@ elation.require([], function() {
       // closure scratch variables
       var worldpos = new THREE.Vector3();
 
-      return function(box, plane, contacts) {
+      return function(box, plane, contacts, dt) {
         if (!contacts) contacts = [];
         var vertices = [
               [box.min.x, box.min.y, box.min.z],
@@ -155,7 +184,7 @@ elation.require([], function() {
       }
     }();
 
-    this.vertex_vertex = function(v1, v2, contacts) {
+    this.vertex_vertex = function(v1, v2, contacts, dt) {
       if (!contacts) contacts = [];
       let distance = v1.distanceTo(v2);
       if (distance < 1e6) {
@@ -171,7 +200,7 @@ elation.require([], function() {
 
     this.vertex_sphere = function() {
       let localvert = new THREE.Vector3();
-      return function(vertex, sphere, contacts) {
+      return function(vertex, sphere, contacts, dt) {
         if (!contacts) contacts = [];
         sphere.body.worldToLocal(localvert.copy(vertex));
 
@@ -190,7 +219,7 @@ elation.require([], function() {
 
     this.vertex_box = function() {
       var relpos = new THREE.Vector3();
-      return function(vertex, box, contacts) {
+      return function(vertex, box, contacts, dt) {
         if (!contacts) contacts = [];
         // Get point in box-local coordinates
         box.body.worldToLocalPos(relpos.copy(vertex));
@@ -226,7 +255,7 @@ elation.require([], function() {
       }
     }();
 
-    this.vertex_triangle = function(vertex, triangle, contacts) {
+    this.vertex_triangle = function(vertex, triangle, contacts, dt) {
       if (triangle.containsPoint(vertex)) {
         var contact = new elation.physics.contact({
           point: vertex.clone(), // allocate point
@@ -332,7 +361,7 @@ elation.require([], function() {
         return contact;
       }
 
-      return function(box1, box2, contacts) {
+      return function(box1, box2, contacts, dt) {
         if (!contacts) contacts = [];
         box1.body.localToWorldPos(thispos.set(0,0,0));
         box2.body.localToWorldPos(otherpos.set(0,0,0));
@@ -423,7 +452,7 @@ elation.require([], function() {
       var up = new THREE.Vector3();
       var capline = new THREE.Vector3();
 
-      return function(cylinder, sphere, contacts) {
+      return function(cylinder, sphere, contacts, dt) {
         if (!contacts) contacts = [];
         // Transform sphere position into cylinder's coordinate space
         // TODO - account for offset
@@ -504,16 +533,16 @@ elation.require([], function() {
         return contacts;
       }
     }();
-    this.sphere_cylinder = function(sphere, cylinder, contacts) {
-      return this.cylinder_sphere(cylinder, sphere, contacts);
+    this.sphere_cylinder = function(sphere, cylinder, contacts, dt) {
+      return this.cylinder_sphere(cylinder, sphere, contacts, dt);
     }
-    this.sphere_triangle = function(sphere, triangle, contacts) {
-      return this.triangle_sphere(triangle, sphere, contacts);
+    this.sphere_triangle = function(sphere, triangle, contacts, dt) {
+      return this.triangle_sphere(triangle, sphere, contacts, dt);
     }
-    this.cylinder_box = function(cylinder, box, contacts) {
+    this.cylinder_box = function(cylinder, box, contacts, dt) {
       //return this.cylinder_sphere(cylinder, sphere, contacts);
     }
-    this.cylinder_cylinder = function(cylinder, box, contacts) {
+    this.cylinder_cylinder = function(cylinder, box, contacts, dt) {
       //return this.cylinder_sphere(cylinder, sphere, contacts);
     }
     this.cylinder_plane = function() {
@@ -538,7 +567,7 @@ elation.require([], function() {
         checkPoint(point, cylinder, plane, contacts);
       }
 
-      return function(cylinder, plane, contacts) {
+      return function(cylinder, plane, contacts, dt) {
         if (!contacts) contacts = [];
         cylinder.body.localToWorldDir(up.set(0,1,0));
         plane.body.localToWorldDir(planenorm.copy(plane.normal));
@@ -576,7 +605,7 @@ elation.require([], function() {
       var point = new THREE.Vector3();
       var normal = new THREE.Vector3();
 
-      return function(capsule, sphere, contacts) {
+      return function(capsule, sphere, contacts, dt) {
         var radius = capsule.radius + sphere.radius;
         capsule.body.localToWorldPos(start.set(0,-capsule.length/2,0));
         capsule.body.localToWorldPos(end.set(0,capsule.length/2,0));
@@ -609,7 +638,7 @@ elation.require([], function() {
       var normal = new THREE.Vector3();
       var rigid = new elation.physics.rigidbody();
 
-      return function(capsule, box, contacts) {
+      return function(capsule, box, contacts, dt) {
 
         start.set(0,-capsule.length/2,0);
         end.set(0,capsule.length/2,0);
@@ -659,7 +688,7 @@ elation.require([], function() {
       var point = new THREE.Vector3();
       var normal = new THREE.Vector3();
 
-      return function(capsule, cylinder, contacts) {
+      return function(capsule, cylinder, contacts, dt) {
 
         capsule.body.localToWorldPos(start.set(0,-capsule.length/2,0));
         capsule.body.localToWorldPos(end.set(0,capsule.length/2,0));
@@ -690,87 +719,64 @@ elation.require([], function() {
     this.triangle_sphere = function() {
       // closure scratch variables
       var spherepos = new THREE.Vector3(),
+          endpos = new THREE.Vector3(),
           scalednormal = new THREE.Vector3(),
-          scaledvelocity = new THREE.Vector3(),
-          planeIntersectionPoint = new THREE.Vector3();
+          scaledVelocity = new THREE.Vector3(),
+          scaledaccel = new THREE.Vector3(),
+          intersectionPoint = new THREE.Vector3(),
+          triangleClosestPoint = new THREE.Vector3(),
+          normal = new THREE.Vector3();
 
       // Reference: http://www.peroxide.dk/papers/collision/collision.pdf
 
-      return function(triangle, sphere, contacts) {
+      return function(triangle, sphere, contacts, dt) {
         // Sphere position should already be in the same coordinate system as the triangle
-        spherepos.copy(sphere.body.position);
-        var dist = triangle.distanceTo(spherepos);
-        if (dist > sphere.radius) {
-          return contacts;
-        }
+        spherepos.copy(triangle.normal).multiplyScalar(-sphere.radius).add(sphere.body.position);
+        scaledVelocity.copy(sphere.body.velocity).multiplyScalar(dt);
+        endpos.copy(spherepos).add(scaledVelocity);
 
-        // TODO - check against inside of triangle + edges
-
-        var normalDotVel = triangle.normal.dot(sphere.body.velocity),
-            t0, t1,
-            embeddedInPlane = false;
-
-        if (normalDotVel == 0) {
-          // Sphere is travelling parallel to the plane
-          if (Math.abs(dist) > sphere.radius) {
-            // Sphere is not embedded in plane, no collision possible
+        // Find intersection between the ray our sphere is travelling and the plane upon which our triangle rests
+        let intersectionPlane = elation.physics.colliders.helperfuncs.line_plane(spherepos, endpos, triangle.p1, triangle.p2, triangle.p3, intersectionPoint);
+        if (intersectionPlane) {
+          if (triangle.containsPoint(intersectionPlane.point)) {
+            // If the intersection point is inside of our triangle, we've collided with the triangle's face
+            var contact = new elation.physics.contact_dynamic({
+              normal: triangle.normal.clone(), // allocate normal
+              point: intersectionPlane.point.clone(), // allocate point
+              penetrationTime: intersectionPlane.t,
+              bodies: [triangle.body, sphere.body],
+              triangle: triangle
+            });
+            contacts.push(contact);
             return contacts;
           } else {
-            // Sphere is embedded in plane, and intersects for the whole time range
-            embeddedInPlane = true;
-            t0 = 0;
-            t1 = sphere.radius;
-          }
-        } else {
-          // Not parallel, calculate our intersection interval
-          t0 = (1 - dist) / normalDotVel;
-          t1 = (-1 - dist) / normalDotVel;
+            // Check if the sphere intersects with the edge of the triangle
+            elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPlane.point, triangle.p1, triangle.p2, triangle.p3, triangleClosestPoint);
+            let intersectionEdge = elation.physics.colliders.helperfuncs.line_sphere(triangleClosestPoint, scaledVelocity.copy(sphere.body.velocity).multiplyScalar(-dt).add(triangleClosestPoint), sphere.body.position, sphere.radius, intersectionPoint, true);
+            normal.copy(triangleClosestPoint).sub(sphere.body.position).normalize();
+            if (intersectionEdge && intersectionEdge.point.distanceTo(triangleClosestPoint) <= sphere.radius - scaledVelocity.dot(normal)) {
+              //console.log('got an intersection on the edge', intersectionEdge, triangleClosestPoint);
+              var contact = new elation.physics.contact_dynamic({
+                normal: normal.clone(), // allocate point
+                point: triangleClosestPoint.clone(), // allocate point
+                penetrationTime: intersectionEdge.t,
+                bodies: [triangle.body, sphere.body],
+                triangle: triangle
+              });
 
-          // Swap so that t0 < t1
-          if (t0 > t1) {
-            let tmp = t1;
-            t1 = t0;
-            t0 = tmp;
+              contacts.push(contact);
+              return contacts;
+            }
           }
-
-          // Check that at least one result is within range
-          if (t0 > sphere.radius || t1 < 0) {
-            // Both t values outside of range, no collision possible
-            return contacts;
-          }
-
-          // Clamp to [0..1]
-          if (t0 < 0) t0 = 0;
-          if (t1 < 0) t1 = 0;
-          if (t0 > sphere.radius) t0 = sphere.radius;
-          if (t1 > sphere.radius) t1 = sphere.radius;
         }
-
-        scalednormal.copy(triangle.normal).multiplyScalar(sphere.radius);
-        scaledvelocity.copy(sphere.body.velocity).multiplyScalar(t0);
-        planeIntersectionPoint.copy(spherepos).sub(scalednormal).add(scaledvelocity);
-        if (triangle.containsPoint(planeIntersectionPoint)) {
-          var contact = new elation.physics.contact({
-            normal: triangle.normal.clone(), // allocate normal, FIXME - transform into world coords
-            point: planeIntersectionPoint.clone(), // allocate point
-            penetration: -t1 * scaledvelocity.length(),
-            bodies: [triangle.body, sphere.body],
-            triangle: triangle
-          });
-          contacts.push(contact);
-          return contacts;
-        }
-
-        var A = scaledvelocity.multiplyVectors(sphere.body.velocity, sphere.body.velocity);
-        //var B = velocity.multiply(spherepos.clone().sub();
-
       }
     }();
     this.mesh_sphere = function() {
       // closure scratch variables
-      var localsphere; // A sphere collider representing the collider in the mesh's local space
+      var localsphere,
+          meshsphere; // A sphere collider representing the collider in the mesh's local space
 
-      return function(mesh, sphere, contacts) {
+      return function(mesh, sphere, contacts, dt) {
         var localcontacts = [];
 
         // The sphere and mesh we're passed in are both potentially in different coordinate spaces.
@@ -782,6 +788,8 @@ elation.require([], function() {
           // Allocate the static closure variable for first-time use
           localsphere = new elation.physics.rigidbody();
           localsphere.setCollider('sphere', {radius: 1});
+          meshsphere = new elation.physics.rigidbody();
+          meshsphere.setCollider('sphere', {radius: 1});
         }
 
         // Transform position, velocity, and acceleration into mesh-local coordinate system
@@ -793,19 +801,26 @@ elation.require([], function() {
         localsphere.collider.scale = sphere.scale;
         localsphere.collider.offset = sphere.offset;
 
-        for (var i = 0; i < mesh.triangles.length; i++) {
-          elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], localsphere.collider, localcontacts);
+        meshsphere.collider.radius = mesh.radius;
+
+        // early-out if the mesh's bounding sphere wouldn't intersect with the potentially-colliding sphere
+        //let spherecollisions = elation.physics.colliders.helperfuncs.sphere_sphere(meshsphere.collider, localsphere.collider);
+        //if (spherecollisions.length > 0) {
+        if (localsphere.position.length() <= mesh.radius + localsphere.velocity.length()) {
+          //console.log('potentially colliding', mesh, sphere, localsphere);
+          for (var i = 0; i < mesh.triangles.length; i++) {
+            elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], localsphere.collider, localcontacts, dt);
+          }
         }
 
         if (localcontacts.length > 0) {
           var closest = localcontacts[0];
           //console.log('got some local contacts!', localcontacts[0].point, localcontacts[0].normal, localsphere.position, localsphere.velocity, localcontacts[0]);
           for (var i = 0; i < localcontacts.length; i++) {
-            if (closest.distance > localcontacts[i].distance) {
+            if (closest.penetrationTime < localcontacts[i].penetrationTime) {
               closest = localcontacts[i];
             }
           }
-//console.log('contact is', closest);
 
           if (closest.bodies[0] === localsphere) {
             closest.bodies[0] = sphere.body;
@@ -865,9 +880,141 @@ elation.require([], function() {
         return proj.clone();
       }
     }();
+    this.closest_point_on_triangle = (function() {
+      // Reference: Real Time Collision Detection by Christer Ericson
+      let ab = new THREE.Vector3(),
+          ac = new THREE.Vector3(),
+
+          ap = new THREE.Vector3(),
+          bp = new THREE.Vector3(),
+          cp = new THREE.Vector3();
+      return function(point, a, b, c, closest) {
+        if (!closest) closest = new THREE.Vector3(); // Allocate return vector if reference isn't passed in
+
+        ab.subVectors(b, a);
+        ac.subVectors(c, a);
+
+        // Check if point is in vertex region outside A
+        ap.subVectors(point, a);
+        let d1 = ab.dot(ap),
+            d2 = ac.dot(ap);
+        if (d1 <= 0 && d2 <= 0) return closest.copy(a);
+
+        // Check if point is in vertex region outside B
+        bp.subVectors(point, b);
+        let d3 = ab.dot(bp),
+            d4 = ac.dot(bp);
+        if (d3 >= 0 && d4 <= d3) return closest.copy(b);
+
+        // Check if point is in edge region of AB, if so return projection of point onto AB
+        let vc = d1 * d4 - d3 * d2;
+        if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+          let v = d1 / (d1 - d3);
+//console.log('p is in AB', point, ab, vc, v);
+          return closest.copy(ab).multiplyScalar(v).add(a);
+        }
+
+        // Check if point is in vertex region outside C
+        cp.subVectors(point, c);
+        let d5 = ab.dot(cp),
+            d6 = ac.dot(cp);
+        if (d6 >= 0 && d5 <= d6) {
+//console.log('p is in C', point, ab, cp, d5, d6);
+          return closest.copy(c);
+        }
+
+        // Check if point is in edge region of AC, if so return projection of point onto AC
+        let vb = d5 * d2 - d1 * d6;
+        if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+          let w = d2 / (d2 - d6);
+//console.log('p is in AC', point, ac, cp, vb, d2, d6);
+          return closest.copy(ac).multiplyScalar(w).add(a);
+        }
+
+        // Check if point is in edge region of BC, if so return projection of point onto BC
+        let va = d3 * d6 - d5 * d4;
+        if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+          let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+//console.log('p is in BC', point, cp, va, w);
+          return closest.copy(c).sub(b).multiplyScalar(w).add(b);
+        }
+
+        // point is inside face region. Compute Q through its barycentric coordinates
+        let denom = 1 / (va + vb + vc),
+            v = vb * denom,
+            w = vc * denom;
+//console.log('p is in face', point, denom, v, w);
+        return closest.copy(ac).multiplyScalar(w).add(ab.multiplyScalar(v)).add(a);
+      }
+    })();
     this.distance_to_line = function(start, end, point) {
       return this.closest_point_on_line(start, end, point).distanceTo(point);
     }
+
+    this.ray_sphere = (function() {
+      // Closure scratch variables
+      let m = new THREE.Vector3();
+
+      return function(raypos, dir, spherepos, radius, point) {
+        m.copy(raypos).sub(spherepos);
+        let b = m.dot(dir),
+            c = m.dot(m) - radius * radius;
+        // Exit if ray's origin is outside of sphere and ray is pointing away from sphere
+        if (c > 0 && b > 0) return;
+        let discr = b * b - c;
+        // A negative discriminant corresponds to ray missing sphere
+        if (discr < 0) return;
+        // Ray now found to be intersecting sphere, compute smallest t value of intersection
+        let t = -b - Math.sqrt(discr);
+        if (t < 0) t = 0;
+        if (!point) point = new THREE.Vector3(); // Allocate return vector if reference isn't passed in
+        point.copy(dir).multiplyScalar(t).add(raypos); // FIXME - allocation
+        return {point, t};
+      }
+    })();
+    this.line_sphere = (function() {
+      // Closure scratch variables
+      let m = new THREE.Vector3(),
+          dir = new THREE.Vector3();
+      return function(start, end, spherepos, radius, point, isRay) {
+        m.copy(start).sub(spherepos);
+        dir.copy(end).sub(start);
+        let len = dir.length(),
+            b = m.dot(dir.divideScalar(len)),
+            c = m.dot(m) - radius * radius;
+        // Exit if ray's origin is outside of sphere and ray is pointing away from sphere
+        if (c > 0 && b > 0) return;
+        let discr = b * b - c;
+        // A negative discriminant corresponds to ray missing sphere
+        if (discr < 0) return;
+        // Ray now found to be intersecting sphere, compute smallest t value of intersection
+        let t = -b - Math.sqrt(discr);
+        // If t is negative, ray started insidde sphere so clamp t to zero
+        if (t < 0) t = 0;
+        // If the intersection happens past the length of our line segment, there's no collision
+        if (t > len && !isRay) return;
+
+        if (!point) point = new THREE.Vector3(); // Allocate return vector if reference isn't passed in
+        point.copy(dir).multiplyScalar(t).add(start); // allocate point
+        return {point: point, t: t / len};
+      }
+    })();
+    this.line_plane = (function() {
+      let ab = new THREE.Vector3(),
+          planeNormal = new THREE.Vector3(),
+          scratch = new THREE.Vector3();
+      return function(start, end, p1, p2, p3, point) {
+        ab.copy(end).sub(start);
+        planeNormal.copy(p2).sub(p1).cross(scratch.copy(p3).sub(p1));
+        let planeDistance = planeNormal.dot(p1);
+        let t = (planeDistance - planeNormal.dot(start)) / planeNormal.dot(ab);
+        if (t >= 0 && t <= 1) {
+          if (!point) point = new THREE.Vector3(); // Allocate return vector if reference isn't passed in
+          point.copy(start).add(ab.multiplyScalar(t));
+          return {point, t};
+        }
+      }
+    })();
   });
 
 
@@ -884,26 +1031,26 @@ elation.require([], function() {
     this.scale = args.scale || new THREE.Vector3(1,1,1),
     this.offset = args.offset || false;
 
-    this.getContacts = function(other, contacts) {
+    this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       switch(other.type) {
         case 'sphere':
-          contacts = elation.physics.colliders.helperfuncs.sphere_sphere(this, other, contacts);
+          contacts = elation.physics.colliders.helperfuncs.sphere_sphere(this, other, contacts, dt);
           break;
         case 'plane':
-          contacts = elation.physics.colliders.helperfuncs.sphere_plane(this, other, contacts);
+          contacts = elation.physics.colliders.helperfuncs.sphere_plane(this, other, contacts, dt);
           break;
         case 'box':
-          contacts = elation.physics.colliders.helperfuncs.box_sphere(other, this, contacts);
+          contacts = elation.physics.colliders.helperfuncs.box_sphere(other, this, contacts, dt);
           break;
         case 'cylinder':
-          contacts = elation.physics.colliders.helperfuncs.sphere_cylinder(this, other, contacts);
+          contacts = elation.physics.colliders.helperfuncs.sphere_cylinder(this, other, contacts, dt);
           break;
         case 'capsule':
-          contacts = elation.physics.colliders.helperfuncs.capsule_sphere(other, this, contacts);
+          contacts = elation.physics.colliders.helperfuncs.capsule_sphere(other, this, contacts, dt);
           break;
         case 'mesh':
-          contacts = elation.physics.colliders.helperfuncs.mesh_sphere(other, this, contacts);
+          contacts = elation.physics.colliders.helperfuncs.mesh_sphere(other, this, contacts, dt);
           break;
         default:
           console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
@@ -929,14 +1076,14 @@ elation.require([], function() {
     this.offset = args.offset || 0;
     this.radius = Infinity;
 
-    this.getContacts = function(other, contacts) {
+    this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.sphere) {
-        contacts = elation.physics.colliders.helperfuncs.sphere_plane(other, this, contacts);
+        contacts = elation.physics.colliders.helperfuncs.sphere_plane(other, this, contacts, dt);
       } else if (other instanceof elation.physics.colliders.box) {
-        contacts = elation.physics.colliders.helperfuncs.box_plane(other, this, contacts);
+        contacts = elation.physics.colliders.helperfuncs.box_plane(other, this, contacts, dt);
       } else if (other instanceof elation.physics.colliders.cylinder) {
-        contacts = elation.physics.colliders.helperfuncs.cylinder_plane(other, this, contacts);
+        contacts = elation.physics.colliders.helperfuncs.cylinder_plane(other, this, contacts, dt);
       } else {
         console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
       }
@@ -956,16 +1103,16 @@ elation.require([], function() {
     this.halfsize = this.max.clone().sub(this.min).divideScalar(2);
     this.offset = this.max.clone().add(this.min).divideScalar(2);
 
-    this.getContacts = function(other, contacts) {
+    this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.plane) {
-        contacts = elation.physics.colliders.helperfuncs.box_plane(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.box_plane(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.sphere) {
-        contacts = elation.physics.colliders.helperfuncs.box_sphere(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.box_sphere(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.box) {
-        contacts = elation.physics.colliders.helperfuncs.box_box(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.box_box(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.cylinder) {
-        contacts = elation.physics.colliders.helperfuncs.cylinder_box(other, this, contacts);
+        contacts = elation.physics.colliders.helperfuncs.cylinder_box(other, this, contacts, dt);
       } else {
         console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
       }
@@ -1024,16 +1171,16 @@ elation.require([], function() {
     this.height = args.height;
     this.offset = args.offset || new THREE.Vector3();
 
-    this.getContacts = function(other, contacts) {
+    this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.plane) {
-        contacts = elation.physics.colliders.helperfuncs.cylinder_plane(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.cylinder_plane(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.sphere) {
-        contacts = elation.physics.colliders.helperfuncs.cylinder_sphere(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.cylinder_sphere(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.box) {
-        contacts = elation.physics.colliders.helperfuncs.cylinder_box(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.cylinder_box(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.cylinder) {
-        contacts = elation.physics.colliders.helperfuncs.cylinder_cylinder(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.cylinder_cylinder(this, other, contacts, dt);
       } else {
         console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
       }
@@ -1062,14 +1209,14 @@ elation.require([], function() {
     this.length = args.length;
     this.offset = args.offset;
 
-    this.getContacts = function(other, contacts) {
+    this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.plane) {
-        contacts = elation.physics.colliders.helperfuncs.capsule_plane(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.capsule_plane(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.sphere) {
-        contacts = elation.physics.colliders.helperfuncs.capsule_sphere(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.capsule_sphere(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.box) {
-        contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts, dt);
   /*
       } else if (other instanceof elation.physics.colliders.cylinder) {
         contacts = elation.physics.colliders.helperfuncs.capsule_cylinder(this, other, contacts);
@@ -1100,9 +1247,19 @@ elation.require([], function() {
     this.body = body;
 
     this.mesh = args.mesh;
+    this.radius = 0;
 
     this.extractTriangles = function(mesh) {
       let triangles = [];
+      let radiusSq = 0;
+      let scale = mesh.scale.clone(),
+          position = mesh.position.clone();
+      let parent = mesh.parent;
+      while (parent) {
+        scale.multiply(parent.scale);
+        parent = parent.parent;
+      }
+
       if (this.mesh.geometry) {
         if (this.mesh.geometry instanceof THREE.BufferGeometry) {
           let positions = this.mesh.geometry.attributes.position,
@@ -1115,26 +1272,48 @@ elation.require([], function() {
                   v1 = idxarr[offset] * 3,
                   v2 = idxarr[offset+1] * 3,
                   v3 = idxarr[offset+2] * 3,
-                  p1 = new THREE.Vector3(posarr[v1], posarr[v1 + 1], posarr[v1 + 2]),
-                  p2 = new THREE.Vector3(posarr[v2], posarr[v2 + 1], posarr[v2 + 2]),
-                  p3 = new THREE.Vector3(posarr[v3], posarr[v3 + 1], posarr[v3 + 2]),
-                  triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
+
+                  p1 = new THREE.Vector3((posarr[v1] * scale.x), (posarr[v1 + 1] * scale.y), (posarr[v1 + 2] * scale.z)),
+                  p2 = new THREE.Vector3((posarr[v2] * scale.x), (posarr[v2 + 1] * scale.y), (posarr[v2 + 2] * scale.z)),
+                  p3 = new THREE.Vector3((posarr[v3] * scale.x), (posarr[v3 + 1] * scale.y), (posarr[v3 + 2] * scale.z)),
+
+/*
+                  p1 = new THREE.Vector3((posarr[v1]), (posarr[v1 + 1]), (posarr[v1 + 2])),
+                  p2 = new THREE.Vector3((posarr[v2]), (posarr[v2 + 1]), (posarr[v2 + 2])),
+                  p3 = new THREE.Vector3((posarr[v3]), (posarr[v3 + 1]), (posarr[v3 + 2])),
+*/                  triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
 
               triangles.push(triangle);
+
+              let l1 = p1.lengthSq(),
+                  l2 = p2.lengthSq(),
+                  l3 = p3.lengthSq();
+              if (l1 > radiusSq) radiusSq = l1;
+              if (l2 > radiusSq) radiusSq = l2;
+              if (l3 > radiusSq) radiusSq = l3;
             }
           } else {
             for (var i = 0; i < positions.count / 3; i++) {
               let offset = i * 3 * 3,
-                  p1 = new THREE.Vector3(posarr[offset], posarr[offset + 1], posarr[offset + 2]),
-                  p2 = new THREE.Vector3(posarr[offset + 3], posarr[offset + 4], posarr[offset + 5]),
-                  p3 = new THREE.Vector3(posarr[offset + 6], posarr[offset + 7], posarr[offset + 8]),
+                  p1 = new THREE.Vector3((posarr[offset    ] + mesh.position.x) * scale.x, (posarr[offset + 1] + mesh.position.y) * scale.y, (posarr[offset + 2] + mesh.position.z) * scale.z),
+                  p2 = new THREE.Vector3((posarr[offset + 3] + mesh.position.x) * scale.x, (posarr[offset + 4] + mesh.position.y) * scale.y, (posarr[offset + 5] + mesh.position.z) * scale.z),
+                  p3 = new THREE.Vector3((posarr[offset + 6] + mesh.position.x) * scale.x, (posarr[offset + 7] + mesh.position.y) * scale.y, (posarr[offset + 8] + mesh.position.z) * scale.z),
                   triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
 
               triangles.push(triangle);
+
+              let l1 = p1.lengthSq(),
+                  l2 = p2.lengthSq(),
+                  l3 = p3.lengthSq();
+              if (l1 > radiusSq) radiusSq = l1;
+              if (l2 > radiusSq) radiusSq = l2;
+              if (l3 > radiusSq) radiusSq = l3;
             }
           }
         }
       }
+      this.radius = Math.sqrt(radiusSq);
+console.log('my mesh radius', this.radius, this);
       return triangles;
     }
     this.extractObjects = function(mesh) {
@@ -1165,6 +1344,7 @@ elation.require([], function() {
           if (!bodies[obj.uuid]) {
             bodies[obj.uuid] = new elation.physics.rigidbody();
             bodies[obj.uuid].position.copy(obj.position);
+            bodies[obj.uuid].scale.copy(obj.scale);
             bodies[obj.uuid].orientation.copy(obj.quaternion);
             bodies[obj.uuid].object = this.body.object;
             if (obj instanceof THREE.Mesh) {
@@ -1181,10 +1361,10 @@ elation.require([], function() {
     this.extractObjects(this.mesh);
     this.triangles = this.extractTriangles(this.mesh);
 
-    this.getContacts = function(other, contacts) {
+    this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.sphere) {
-        contacts = elation.physics.colliders.helperfuncs.mesh_sphere(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.mesh_sphere(this, other, contacts, dt);
   /*
       } else if (other instanceof elation.physics.colliders.box) {
         contacts = elation.physics.colliders.helperfuncs.mesh_box(this, other, contacts);
@@ -1233,10 +1413,10 @@ elation.require([], function() {
         normal = this.normal;
     this.offset = -(normal.x * origin.x + normal.y * origin.y + normal.z * origin.z);
 
-    this.getContacts = function(other, contacts) {
+    this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.sphere) {
-        contacts = elation.physics.colliders.helperfuncs.triangle_sphere(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.triangle_sphere(this, other, contacts, dt);
   /*
       } else if (other instanceof elation.physics.colliders.box) {
         contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts);
@@ -1295,9 +1475,14 @@ elation.require([], function() {
         return (u >= 0) && (v >= 0) && (u + v < 1);
       }
     })();
-    this.distanceTo = function(point) {
-      return this.normal.dot(point) + this.offset;
-    }
+    this.distanceTo = (function() {
+      let triangleClosestPoint = new THREE.Vector3();
+      return function(point) {
+        //return this.normal.dot(point) + this.offset;
+        elation.physics.colliders.helperfuncs.closest_point_on_triangle(point, this.p1, this.p2, this.p3, triangleClosestPoint);
+        return triangleClosestPoint.distanceTo(point);
+      }
+    })();
   });
 
   elation.extend("physics.contact", function(contactargs) {
@@ -1333,16 +1518,13 @@ elation.require([], function() {
       var events = elation.events.fire({type: 'physics_collide', element: this.bodies[0], data: this});
       events.push.apply(events, elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
 
-      // After we've executed all of our collision handlers, check to see if any of them has prevented the default handling
-      var handleEvent = true;
-      if (events.length > 0) {
-        handleEvent = events.reduce(function(a, b) { return a && b.returnValue; }, true)
-      }
-
-      // If no event handlers handled this event, use our default collision response
-      if (handleEvent) {
-        this.applyPositionChange(a, b);
-        this.applyVelocityChange(a, b);
+      if (!elation.events.wasDefaultPrevented(events)) {
+        // If no event handlers handled this event, use our default collision response
+        this.applyPositionChange(t, a, b);
+        this.applyVelocityChange(t, a, b);
+        this.finalizeMovement(t, a, b);
+        events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[0], data: this}));
+        events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[1], data: this}));
       }
     }
     /**
@@ -1407,17 +1589,20 @@ elation.require([], function() {
       var lastaccel = new THREE.Vector3();
 
       if (this.bodies[0] && !this.bodies[0].state.sleeping) {
-        velocityFromAccel += lastaccel.copy(this.bodies[0].lastacceleration).multiplyScalar(duration).dot(this.normal);
+        velocityFromAccel -= .5 * lastaccel.copy(this.bodies[0].lastacceleration).multiplyScalar(duration).dot(this.normal);
       }
       if (this.bodies[1] && !this.bodies[1].state.sleeping) {
-        velocityFromAccel -= lastaccel.copy(this.bodies[1].lastacceleration).multiplyScalar(duration).dot(this.normal);
+        velocityFromAccel += .5 * lastaccel.copy(this.bodies[1].lastacceleration).multiplyScalar(duration).dot(this.normal);
       }
 
       var restitution = this.restitution;
+/*
       if (Math.abs(this.velocity.y) < 0.25) { // FIXME - velocity threshold should be configurable
         restitution = 0;
       }
+*/
       this.desiredDeltaVelocity = -this.velocity.y - restitution * (this.velocity.y - velocityFromAccel);
+      //if (this.desiredDeltaVelocity > 0) this.desiredDeltaVelocity *= -1;
       //console.log('desiredDeltaV: ' + this.desiredDeltaVelocity);
     }
     this.calculateInternals = function(duration) {
@@ -1447,7 +1632,7 @@ elation.require([], function() {
       var impulsiveForce = new THREE.Vector3();
       var impulsiveTorque = new THREE.Vector3();
 
-      return function(velocityChange, rotationChange) {
+      return function(duration, velocityChange, rotationChange) {
         var impulse = (this.friction == 0 ? this.calculateFrictionlessImpulse() : this.calculateFrictionImpulse());
         impulse.applyMatrix4(this.contactToWorld);
 
@@ -1505,8 +1690,9 @@ elation.require([], function() {
       var projection = new THREE.Vector3();
       var angularLimit = 0.2;
       var euler = new THREE.Euler();
+      var quat = new THREE.Quaternion();
 
-      return function(linearChange, angularChange, max) {
+      return function(duration, linearChange, angularChange, max) {
         // resolve penetration
 
         var linearInertia = [],
@@ -1578,8 +1764,8 @@ elation.require([], function() {
             this.bodies[i].position.add(linearChange[i]);
 
             euler.set(angularChange[i].x, angularChange[i].y, angularChange[i].z);
-            var q = new THREE.Quaternion().setFromEuler(euler);
-            this.bodies[i].orientation.multiply(q);
+            quat.setFromEuler(euler);
+            this.bodies[i].orientation.multiply(quat);
             //var theta = angularChange[i].length();
             // FIXME - potential coordinate space confusion
             //q.setFromAxisAngle(angularChange[i].clone().divideScalar(theta), theta);
@@ -1589,6 +1775,119 @@ elation.require([], function() {
         //console.log('move it', linearMove, [linearChange[0].toArray(), linearChange[1].toArray()], angularMove, [angularChange[0].toArray(), angularChange[1].toArray()], this.normal.toArray(), this);
       }
     }();
+    this.finalizeMovement = function(duration, linearMomentum, angularMomentum) {
+    }
   });
+
+  elation.extend('physics.contact_dynamic', function(contactargs) {
+    elation.physics.contact.call(this, contactargs);
+    this.penetrationTime = contactargs.penetrationTime || 0;
+    this.collisionVelocities = [];
+
+    if (this.bodies[0]) this.collisionVelocities[0] = this.bodies[0].velocity.clone();
+    if (this.bodies[1]) this.collisionVelocities[1] = this.bodies[1].velocity.clone();
+
+    /**
+     * Resolve a collision using default physical simulation
+     */
+    this.resolve = function(t, a, b) {
+      this.restitution = this.bodies[0].restitution * this.bodies[1].restitution;
+      if (!this.initialized) {
+        this.calculateInternals(t);
+        this.initialized = true;
+      }
+      // Move the object to its exact collision point
+      this.applyPositionChange(t, a, b);
+
+      // Fire events for both objects, and combine them into one array
+      var events = elation.events.fire({type: 'physics_collide', element: this.bodies[0], data: this});
+      events.push.apply(events, elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
+
+      if (!elation.events.wasDefaultPrevented(events)) {
+        // If no event handlers handled this event, use our default collision response
+        this.applyVelocityChange(t, a, b);
+        this.finalizeMovement(t, a, b);
+        events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[0], data: this}));
+        events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[1], data: this}));
+      }
+    }
+    this.calculateInternals = (function() {
+      let scaledVelocity = new THREE.Vector3();
+      return function(duration) {
+        this.calculateContactMatrix();
+
+        // For dynamic collisions, we time-shift forwards using the specified penetrationTime to figure out the exact point we collided
+
+        // Calculate relative position and inertial moment for the first body
+        this.relativePositions[0] = this.bodies[0].localToWorldPos().add(scaledVelocity.copy(this.bodies[0].velocity).multiplyScalar(duration * this.penetrationTime)).sub(this.point); // allocate vector
+        var mworld0 = this._tmpmat.makeRotationFromQuaternion(this.bodies[0].orientationWorld);
+        this.inertialMoments[0] = this.bodies[0].collider.momentInverse.clone().multiply(mworld0); // allocate matrix
+
+        // If we have a second body, figure out its position and inertial moment
+        if (this.bodies[1]) {
+          this.relativePositions[1] = this.bodies[1].localToWorldPos().add(scaledVelocity.copy(this.bodies[1].velocity).multiplyScalar(duration * this.penetrationTime)).sub(this.point); // allocate vector
+          var mworld1 = this._tmpmat.makeRotationFromQuaternion(this.bodies[1].orientationWorld);
+          this.inertialMoments[1] = this.bodies[1].collider.momentInverse.clone().multiply(mworld1); // allocate matrix
+        }
+
+        // calculate velocities
+        this.velocity = this.calculateLocalVelocity(0, duration);
+        if (this.bodies[1]) {
+          this.velocity.sub(this.calculateLocalVelocity(1, duration));
+        }
+        this.calculateDesiredDeltaVelocity(duration);
+      }
+    })();
+    this.applyPositionChange = (function() {
+      // closure scratch variables
+      let angularInertiaWorld = new THREE.Vector3();
+      return function(duration, linearChange, angularChange) {
+        var linearInertia = [],
+            linearMove = [],
+            angularInertia = [],
+            angularMove = [],
+            totalInertia = 0,
+            totalMass = 0;
+        if (this.penetrationTime !== null) {
+          for (let i = 0; i < this.bodies.length; i++) {
+            var body = this.bodies[i];
+            if (body && body.mass > 0) {
+              angularInertiaWorld.crossVectors(this.relativePositions[i], this.normal);
+              angularInertiaWorld.applyMatrix4(this.inertialMoments[i]);
+              angularInertiaWorld.cross(this.relativePositions[i]);
+              angularInertia[i] = angularInertiaWorld.dot(this.normal);
+
+              //body.position.copy(this.relativePositions[i]).add(this.point).add(body.velocity.clone().multiplyScalar(duration * this.penetrationTime));
+              if (this.collisionVelocities[i]) {
+                body.position.add(this.collisionVelocities[i].clone().multiplyScalar(duration * this.penetrationTime));
+              }
+
+              linearInertia[i] = (body.mass == 0 ? 0 : 1 / body.mass);
+              totalInertia += linearInertia[i] + angularInertia[i];
+              totalMass += body.mass;
+            }
+          }
+        }
+      }
+    })();
+    this.finalizeMovement = (function() {
+      let scaledVelocity = new THREE.Vector3();
+      return function(duration, linearMomentum, angularMomentum) {
+        // We've timeshifted our object to the collision point and calculated its new velocity - use the remaining
+        // frame time to move the object along our new velocity vector to its reflected position
+
+        // TODO - instead of just blindly moving, we should put this rigidbody back through the collision system again
+        // and resolve any further collisions which might happen within our timestep.  This would prevent us from tunneling
+        // through other objects after our first bounce.
+
+        for (let i = 0; i < this.bodies.length; i++) {
+          var body = this.bodies[i];
+          if (body && body.mass > 0) {
+            //body.position.copy(this.relativePositions[i]).add(this.point).add(scaledVelocity.copy(body.velocity).multiplyScalar(duration * (1 - this.penetrationTime)));
+          }
+        }
+      }
+    })();
+  }, elation.physics.contact);
 
 });
