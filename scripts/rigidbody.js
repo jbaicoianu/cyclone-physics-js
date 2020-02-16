@@ -251,7 +251,7 @@ elation.require([], function() {
         if (this.parent) {
           point = this.parent.worldToLocalPos(point);
         }
-        return this.parentToLocalPos(point);
+        return this.parentToLocalPos(point).divide(this.scale);
       }
     }();
     // local space to world space
@@ -265,6 +265,7 @@ elation.require([], function() {
     // local space to parent space
     this.localToParentPos = function(point) {
       if (!point) point = new THREE.Vector3();
+      point.multiply(this.scale);
       return point.applyQuaternion(this.orientation).add(this.position);
     }
     // parent space to local space
@@ -299,9 +300,20 @@ elation.require([], function() {
       }
       return scale;
     }
+    this.worldToLocalScale = function(scale) {
+      if (this.parent) {
+        scale = this.parent.worldToLocalScale(scale);
+      }
+      scale = this.parentToLocalScale(scale);
+      return scale;
+    }
     this.localToParentScale = function(scale) {
       if (!scale) scale = new THREE.Vector3(1, 1, 1);
       return scale.multiply(this.scale);
+    }
+    this.parentToLocalScale = function(scale) {
+      if (!scale) scale = new THREE.Vector3(1, 1, 1);
+      return scale.divide(this.scale);
     }
 
     this.isPotentiallyColliding = function() {
