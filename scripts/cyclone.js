@@ -111,6 +111,9 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.localToWorldScale = function(scale) {
       return scale;
     }
+    this.worldToLocalScale = function(scale) {
+      return scale;
+    }
     this.init();
   });
 });
