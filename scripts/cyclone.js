@@ -56,8 +56,6 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
 
           // step 4: run physics simulation on all active objects
           this.processor.iterate(objects, steptime);
-
-
         }
         t -= steptime;
         step++;
