@@ -19,6 +19,11 @@ elation.require([], function() {
     this.restitution = 1;
     this.timescale = 1;
     this.paused = false;
+    this.material = {
+      dynamicfriction: 0,
+      staticfriction: 0,
+      bounciness: 0,
+    };
 
     this.parent = false;
     this.children = [];
