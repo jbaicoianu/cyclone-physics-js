@@ -103,7 +103,10 @@ elation.require([], function() {
       var center = new THREE.Vector3(),      // center of sphere, box-space coordinates
           centerWorld = new THREE.Vector3(), // center of sphere, world-space coordinates
           diff = new THREE.Vector3(),
-          closest = new THREE.Vector3();
+          closest = new THREE.Vector3(),
+          scale = new THREE.Vector3(),
+          scaledmin = new THREE.Vector3(),
+          scaledmax = new THREE.Vector3();
 
       return function(box, sphere, contacts, dt) {
         if (!contacts) contacts = [];
@@ -115,18 +118,22 @@ elation.require([], function() {
           sphere.body.localToWorldPos(centerWorld.set(0,0,0));
         }
         box.body.worldToLocalPos(center.copy(centerWorld));
+        box.body.worldToLocalScale(scale.set(1,1,1));
+
+        scaledmin.copy(scale).multiply(box.min);
+        scaledmax.copy(scale).multiply(box.max);
 
         // Early out if any of the axes are separating
-        if ((center.x + sphere.radius < box.min.x || center.x - sphere.radius > box.max.x) ||
-            (center.y + sphere.radius < box.min.y || center.y - sphere.radius > box.max.y) ||
-            (center.z + sphere.radius < box.min.z || center.z - sphere.radius > box.max.z)) {
+        if ((center.x + sphere.radius < scaledmin.x || center.x - sphere.radius > scaledmax.x) ||
+            (center.y + sphere.radius < scaledmin.y || center.y - sphere.radius > scaledmax.y) ||
+            (center.z + sphere.radius < scaledmin.z || center.z - sphere.radius > scaledmax.z)) {
           return false;
         }
 
         // Find closest point on box
-        closest.x = elation.utils.math.clamp(center.x, box.min.x, box.max.x);
-        closest.y = elation.utils.math.clamp(center.y, box.min.y, box.max.y);
-        closest.z = elation.utils.math.clamp(center.z, box.min.z, box.max.z);
+        closest.x = elation.utils.math.clamp(center.x, scaledmin.x, scaledmax.x);
+        closest.y = elation.utils.math.clamp(center.y, scaledmin.y, scaledmax.y);
+        closest.z = elation.utils.math.clamp(center.z, scaledmin.z, scaledmax.z);
 
         // See if we're in contact
         diff.subVectors(closest, center);
@@ -720,6 +727,7 @@ elation.require([], function() {
       // closure scratch variables
       var spherepos = new THREE.Vector3(),
           endpos = new THREE.Vector3(),
+          scale = new THREE.Vector3(),
           scalednormal = new THREE.Vector3(),
           scaledVelocity = new THREE.Vector3(),
           scaledaccel = new THREE.Vector3(),
@@ -730,9 +738,16 @@ elation.require([], function() {
       // Reference: http://www.peroxide.dk/papers/collision/collision.pdf
 
       return function(triangle, sphere, contacts, dt) {
+        triangle.body.worldToLocalScale(scale.set(1,1,1));
+
         // Sphere position should already be in the same coordinate system as the triangle
-        spherepos.copy(triangle.normal).multiplyScalar(-sphere.radius).add(sphere.body.position);
-        scaledVelocity.copy(sphere.body.velocity).multiplyScalar(dt);
+        spherepos.copy(triangle.normal).multiplyScalar(-sphere.radius).multiply(scale).add(sphere.body.position);
+        if (sphere.offset) {
+          spherepos.add(sphere.offset);
+        }
+
+        scaledVelocity.copy(sphere.body.velocity)//.multiply(scale);
+        scaledVelocity.multiplyScalar(dt);
         endpos.copy(spherepos).add(scaledVelocity);
 
         // Find intersection between the ray our sphere is travelling and the plane upon which our triangle rests
@@ -749,7 +764,7 @@ elation.require([], function() {
             });
             contacts.push(contact);
             return contacts;
-          } else {
+          } else if (false) {
             // Check if the sphere intersects with the edge of the triangle
             elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPlane.point, triangle.p1, triangle.p2, triangle.p3, triangleClosestPoint);
             let intersectionEdge = elation.physics.colliders.helperfuncs.line_sphere(triangleClosestPoint, scaledVelocity.copy(sphere.body.velocity).multiplyScalar(-dt).add(triangleClosestPoint), sphere.body.position, sphere.radius, intersectionPoint, true);
@@ -775,6 +790,7 @@ elation.require([], function() {
       // closure scratch variables
       var localsphere,
           meshsphere; // A sphere collider representing the collider in the mesh's local space
+      let meshworldpos = new THREE.Vector3();
 
       return function(mesh, sphere, contacts, dt) {
         var localcontacts = [];
@@ -784,6 +800,8 @@ elation.require([], function() {
         // intersections more efficient.  Once we've determined local collisions, we then need to
         // transform the collision position and normal back into the sphere's original coordinate space.
 
+// TODO - instead of being in the mesh's coordinate space, we should transform both the mesh and the sphere into world coordinate space.  This is a bit less efficient but means we automatically take into account scale and parent offsets
+
         if (!localsphere) {
           // Allocate the static closure variable for first-time use
           localsphere = new elation.physics.rigidbody();
@@ -792,13 +810,30 @@ elation.require([], function() {
           meshsphere.setCollider('sphere', {radius: 1});
         }
 
+        // Transform sphere and mesh positions, velocity, and acceleration to world coordinates
+        mesh.body.localToWorldPos(meshworldpos.set(0, 0, 0))
+        sphere.body.localToWorldPos(localsphere.position.set(0, 0, 0))
+
+        // Velocity and acceleration shouldn't be affected by the object's scale, so we divide the sphere's velocity and accel by its scale to undo what the localToWorld applies
+        sphere.body.localToWorldPos(localsphere.velocity.copy(sphere.body.velocity).divide(sphere.body.scale)).sub(localsphere.position);
+        sphere.body.localToWorldPos(localsphere.acceleration.copy(sphere.body.acceleration).divide(sphere.body.scale)).sub(localsphere.position);
+
         // Transform position, velocity, and acceleration into mesh-local coordinate system
-        mesh.body.worldToLocalPos(sphere.body.localToWorldPos(localsphere.position.set(0, 0, 0)))
-        mesh.body.worldToLocalDir(sphere.body.localToWorldDir(localsphere.velocity.copy(sphere.body.velocity)));
-        mesh.body.worldToLocalDir(sphere.body.localToWorldDir(localsphere.acceleration.copy(sphere.body.acceleration)));
+        mesh.body.worldToLocalPos(localsphere.velocity.add(meshworldpos));
+        mesh.body.worldToLocalPos(localsphere.acceleration.add(meshworldpos));
+
+        //let localvel = mesh.body.worldToLocalDir(sphere.body.localToWorldDir(sphere.body.velocity.clone()));
+
+        // Transform sphere into local coordinates
+        mesh.body.worldToLocalPos(localsphere.position);
+        if (sphere.offset) {
+          // Transform sphere offset into world coordinate space, then into mesh-relative coordinate space
+          localsphere.collider.offset = mesh.body.worldToLocalDir(sphere.body.localToWorldDir(sphere.offset.clone())); 
+        }
         //mesh.body.worldToLocal(sphere.localToWorld(localsphere.dir.set(0, 0, 0)))
+
         localsphere.collider.radius = sphere.radius;
-        localsphere.collider.scale = sphere.scale;
+        //mesh.body.worldToLocalScale(sphere.body.localToWorldScale(localsphere.collider.scale.set(1,1,1)));
         localsphere.collider.offset = sphere.offset;
 
         meshsphere.collider.radius = mesh.radius;
@@ -812,6 +847,17 @@ elation.require([], function() {
             elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], localsphere.collider, localcontacts, dt);
           }
         }
+/*
+        if (!worldsphere) {
+          // Allocate the static closure variable for first-time use
+          worldsphere = new elation.physics.rigidbody();
+          worldsphere.setCollider('sphere', {radius: 1});
+          meshsphere = new elation.physics.rigidbody();
+          meshsphere.setCollider('sphere', {radius: 1});
+          worldtriangle = new elation.physics.rigidbody();
+          worldtriangle.setCollider('triangle', {});
+        }
+*/
 
         if (localcontacts.length > 0) {
           var closest = localcontacts[0];
@@ -1114,7 +1160,7 @@ elation.require([], function() {
       } else if (other instanceof elation.physics.colliders.cylinder) {
         contacts = elation.physics.colliders.helperfuncs.cylinder_box(other, this, contacts, dt);
       } else {
-        console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
+        //console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
       }
       return contacts;
     }
@@ -1252,13 +1298,6 @@ elation.require([], function() {
     this.extractTriangles = function(mesh) {
       let triangles = [];
       let radiusSq = 0;
-      let scale = mesh.scale.clone(),
-          position = mesh.position.clone();
-      let parent = mesh.parent;
-      while (parent) {
-        scale.multiply(parent.scale);
-        parent = parent.parent;
-      }
 
       if (this.mesh.geometry) {
         if (this.mesh.geometry instanceof THREE.BufferGeometry) {
@@ -1273,9 +1312,9 @@ elation.require([], function() {
                   v2 = idxarr[offset+1] * 3,
                   v3 = idxarr[offset+2] * 3,
 
-                  p1 = new THREE.Vector3((posarr[v1] * scale.x), (posarr[v1 + 1] * scale.y), (posarr[v1 + 2] * scale.z)),
-                  p2 = new THREE.Vector3((posarr[v2] * scale.x), (posarr[v2 + 1] * scale.y), (posarr[v2 + 2] * scale.z)),
-                  p3 = new THREE.Vector3((posarr[v3] * scale.x), (posarr[v3 + 1] * scale.y), (posarr[v3 + 2] * scale.z)),
+                  p1 = new THREE.Vector3((posarr[v1]), (posarr[v1 + 1]), (posarr[v1 + 2])),
+                  p2 = new THREE.Vector3((posarr[v2]), (posarr[v2 + 1]), (posarr[v2 + 2])),
+                  p3 = new THREE.Vector3((posarr[v3]), (posarr[v3 + 1]), (posarr[v3 + 2])),
 
 /*
                   p1 = new THREE.Vector3((posarr[v1]), (posarr[v1 + 1]), (posarr[v1 + 2])),
@@ -1295,9 +1334,9 @@ elation.require([], function() {
           } else {
             for (var i = 0; i < positions.count / 3; i++) {
               let offset = i * 3 * 3,
-                  p1 = new THREE.Vector3((posarr[offset    ] + mesh.position.x) * scale.x, (posarr[offset + 1] + mesh.position.y) * scale.y, (posarr[offset + 2] + mesh.position.z) * scale.z),
-                  p2 = new THREE.Vector3((posarr[offset + 3] + mesh.position.x) * scale.x, (posarr[offset + 4] + mesh.position.y) * scale.y, (posarr[offset + 5] + mesh.position.z) * scale.z),
-                  p3 = new THREE.Vector3((posarr[offset + 6] + mesh.position.x) * scale.x, (posarr[offset + 7] + mesh.position.y) * scale.y, (posarr[offset + 8] + mesh.position.z) * scale.z),
+                  p1 = new THREE.Vector3(posarr[offset    ], posarr[offset + 1], posarr[offset + 2]),
+                  p2 = new THREE.Vector3(posarr[offset + 3], posarr[offset + 4], posarr[offset + 5]),
+                  p3 = new THREE.Vector3(posarr[offset + 6], posarr[offset + 7], posarr[offset + 8]),
                   triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
 
               triangles.push(triangle);
@@ -1313,7 +1352,6 @@ elation.require([], function() {
         }
       }
       this.radius = Math.sqrt(radiusSq);
-console.log('my mesh radius', this.radius, this);
       return triangles;
     }
     this.extractObjects = function(mesh) {
@@ -1400,18 +1438,29 @@ console.log('my mesh radius', this.radius, this);
     this.type = 'triangle';
     if (!args) args = {};
     this.body = body;
-    this.p1 = args[0];
-    this.p2 = args[1];
-    this.p3 = args[2];
 
-    this.v0 = this.p2.clone().sub(this.p1);
-    this.v1 = this.p3.clone().sub(this.p1);
+    this.v0 = new THREE.Vector3();
+    this.v1 = new THREE.Vector3();
 
-    this.normal = this.p2.clone().sub(this.p1).normalize().cross(this.p3.clone().sub(this.p1).normalize()).normalize();
+    this.normal = new THREE.Vector3(0,1,0);
 
-    var origin = this.p1,
-        normal = this.normal;
-    this.offset = -(normal.x * origin.x + normal.y * origin.y + normal.z * origin.z);
+    this.updatePoints = function(p1, p2, p3) {
+      this.p1 = p1;
+      this.p2 = p2;
+      this.p3 = p3;
+
+      this.v0.copy(this.p2).sub(this.p1);
+      this.v1.copy(this.p3).sub(this.p1);
+
+      this.normal.copy(this.v0).cross(this.v1).normalize();
+
+      var origin = this.p1,
+          normal = this.normal;
+      this.offset = -(normal.x * origin.x + normal.y * origin.y + normal.z * origin.z);
+    }
+
+    this.updatePoints(args[0], args[1], args[2]);
+
 
     this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
@@ -1453,6 +1502,7 @@ console.log('my mesh radius', this.radius, this);
 
         p1.copy(this.p1).multiply(scale);
 
+/*
         this.v0.x = (this.p2.x * scale.x) - p1.x;
         this.v0.y = (this.p2.y * scale.y) - p1.y;
         this.v0.z = (this.p2.z * scale.z) - p1.z;
@@ -1460,6 +1510,9 @@ console.log('my mesh radius', this.radius, this);
         this.v1.x = (this.p3.x * scale.x) - p1.x;
         this.v1.y = (this.p3.y * scale.y) - p1.y;
         this.v1.z = (this.p3.z * scale.z) - p1.z;
+*/
+        this.v0.copy(this.p2).sub(p1);
+        this.v1.copy(this.p3).sub(p1);
 
         v2.copy(point).sub(p1);
 
@@ -1609,13 +1662,21 @@ console.log('my mesh radius', this.radius, this);
       this.calculateContactMatrix();
 
       // Calculate relative position and inertial moment for the first body
-      this.relativePositions[0] = this.point.clone().sub(this.bodies[0].localToWorldPos()); // allocate vector
+      if (this.bodies[0].collider.offset) {
+        this.relativePositions[0] = this.point.clone().sub(this.bodies[0].localToWorldPos(this.bodies[0].collider.offset.clone())); // allocate vector
+      } else {
+        this.relativePositions[0] = this.point.clone().sub(this.bodies[0].localToWorldPos()); // allocate vector
+      }
       var mworld0 = this._tmpmat.makeRotationFromQuaternion(this.bodies[0].orientationWorld);
       this.inertialMoments[0] = this.bodies[0].collider.momentInverse.clone().multiply(mworld0); // allocate matrix
 
       // If we have a second body, figure out its position and inertial moment
       if (this.bodies[1]) {
-        this.relativePositions[1] = this.point.clone().sub(this.bodies[1].localToWorldPos()); // allocate vector
+        if (this.bodies[1].collider.offset) {
+          this.relativePositions[1] = this.point.clone().sub(this.bodies[1].localToWorldPos(this.bodies[0].collider.offset.clone())); // allocate vector
+        } else {
+          this.relativePositions[1] = this.point.clone().sub(this.bodies[1].localToWorldPos()); // allocate vector
+        }
         var mworld1 = this._tmpmat.makeRotationFromQuaternion(this.bodies[1].orientationWorld);
         this.inertialMoments[1] = this.bodies[1].collider.momentInverse.clone().multiply(mworld1); // allocate matrix
       }
