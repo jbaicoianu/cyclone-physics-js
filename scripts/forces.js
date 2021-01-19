@@ -1,14 +1,15 @@
 /**
  * forces
  */
-elation.require([], function() {
+elation.require(['physics.common'], function() {
 
   elation.extend("physics.forces.gravity", function(body, args) {
+    this.type = 'gravity';
     this.others = [];
     this.accel = (args instanceof THREE.Vector3 ? args : new THREE.Vector3());
     this.timescale = args.timescale || 1;
     this.gravsum = new THREE.Vector3();
-    this._tmpvec = new THREE.Vector3();
+    let _tmpvec = new THREE.Vector3();
 
     this.apply = function() {
       if (this.others.length > 0) {
@@ -36,11 +37,11 @@ elation.require([], function() {
       elation.events.fire({type: 'physics_force_update', element: this});
     }
     this.getOrbitalVelocity = function(point) {
-      this._tmpvec.copy(point).normalize().cross(new THREE.Vector3(0,1,0)).normalize();
+      _tmpvec.copy(point).normalize().cross(new THREE.Vector3(0,1,0)).normalize();
   //foo.multiplyScalar(2 * Math.PI * this.position.length());
       var m = this.others[0].mass;
-      this._tmpvec.multiplyScalar(Math.sqrt((m * m * 6.67384e-11) / ((m + body.mass) * point.length())));
-      return this._tmpvec;
+      _tmpvec.multiplyScalar(Math.sqrt((m * m * 6.67384e-11) / ((m + body.mass) * point.length())));
+      return _tmpvec;
     }
     this.getForceAtPoint = (function() {
       var _gravsum = new THREE.Vector3();
@@ -53,13 +54,13 @@ elation.require([], function() {
           for (var i = 0; i < this.others.length; i++) {
             // Calculate gravity force for all objects in the set, excluding ourselves
             if (this.others[i] && this.others[i] !== body) {
-              this._tmpvec.subVectors(this.others[i].position, point);
-              var rsq = this._tmpvec.lengthSq();
+              _tmpvec.subVectors(this.others[i].position, point);
+              var rsq = _tmpvec.lengthSq();
               var r = Math.sqrt(rsq);
               var a = (6.67384e-11 * mass * this.others[i].mass) / rsq;
-              _gravsum.x += a * this._tmpvec.x / r;
-              _gravsum.y += a * this._tmpvec.y / r;
-              _gravsum.z += a * this._tmpvec.z / r;
+              _gravsum.x += a * _tmpvec.x / r;
+              _gravsum.y += a * _tmpvec.y / r;
+              _gravsum.z += a * _tmpvec.z / r;
             }
           }
         } else {
@@ -71,61 +72,98 @@ elation.require([], function() {
     this.sleepstate = function() {
       return (this.gravsum.lengthSq() <= 1e-6);
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        others: false, // FIXME - should serialize other objects based on their body ids
+        accel: {x: this.accel.x, y: this.accel.y, z: this.accel.z},
+        timescale: this.timescale,
+      };
+    }
     this.update(args);
   });
   elation.extend("physics.forces.static", function(body, args) {
+    this.type = 'static';
     this.force = args.force || (args instanceof THREE.Vector3 ? args : new THREE.Vector3());
     this.point = args.point || false;
-    this.absolute = args.absolute || false
+    this.absolute = elation.utils.any(args.absolute, false);
+    this.relative = !this.absolute;
 
-    this._tmpvec = new THREE.Vector3();
-    this._tmpvec2 = new THREE.Vector3();
+    if (!(this.force instanceof THREE.Vector3)) this.force = new THREE.Vector3().copy(this.force);
+    if (this.point && !(this.point instanceof THREE.Vector3)) this.point = new THREE.Vector3().copy(this.point);
+
+    let _tmpvec = new THREE.Vector3();
+    let _tmpvec2 = new THREE.Vector3();
 
     this.apply = function() {
-      this._tmpvec.copy(this.force);
-      this._tmpvec2.copy(this.point);
+      _tmpvec.copy(this.force);
       if (this.point) {
+        _tmpvec2.copy(this.point);
         //var torque = this.point.clone().crossSelf(this.accel);
         //body.momentInverse.multiplyVector3(torque);
-        //return [this._tmpvec.clone(), torque];
-        body.applyForceAtPoint(this._tmpvec.clone(), this._tmpvec2.clone(), !this.absolute);
+        //return [_tmpvec.clone(), torque];
+        body.applyForceAtPoint(_tmpvec.clone(), _tmpvec2.clone(), !this.absolute);
       } else {
-        body.applyForce(this._tmpvec, !this.absolute);
+        body.applyForce(_tmpvec, !this.absolute);
       }
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
     this.update = function(updateargs) {
+      let changed = false;
       if (updateargs instanceof THREE.Vector3) {
-        this.force.copy(updateargs);
+        if (!this.force.equals(updateargs)) {
+          this.force.copy(updateargs);
+          changed = true;
+        }
       } else {
-        this.force.copy(updateargs.force);
-        if (updateargs.point instanceof THREE.Vector3) {
+        if (!this.force.equals(updateargs.force)) {
+          this.force.copy(updateargs.force);
+          changed = true;
+        }
+        if (updateargs.point instanceof THREE.Vector3 && !this.point.equals(updateargs.point)) {
           this.point = updateargs.point;
+          changed = true;
         }
         this.relative = updateargs.relative;
       }
-      elation.events.fire({type: 'physics_force_update', element: this});
+      //if (changed) {
+        elation.events.fire({type: 'physics_force_update', element: this});
+      //}
     }
     this.sleepstate = function() {
       return (this.force.lengthSq() <= 1e-6);
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        force: {x: this.force.x, y: this.force.y, z: this.force.z},
+        point: (this.point ? {x: this.point.x, y: this.point.y, z: this.point.z} : false),
+        absolute: this.absolute,
+        relative: this.relative,
+      };
+    }
   });
   elation.extend("physics.forces.friction", function(body, args) {
-    this.friction = args;
-    this.force = new THREE.Vector3();
+    this.type = 'friction';
+    this.friction = args.friction || args;
+
+    let _force = new THREE.Vector3();
 
     this.apply = function() {
-      this.force.set(0,0,0);
+      _force.set(0,0,0);
       if (this.friction > 0) {
         var vsq = body.velocity.lengthSq();
-        this.force.copy(body.velocity).multiplyScalar(-1 * this.friction * body.mass);
+        _force.copy(body.velocity).multiplyScalar(-1 * this.friction * body.mass);
       }
-      body.applyForce(this.force);
+      body.applyForce(_force);
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
     this.update = function(updateargs) {
-      this.friction = updateargs;
-      elation.events.fire({type: 'physics_force_update', element: this});
+      let friction = updateargs.friction || updateargs;
+      if (friction != this.friction) {
+        this.friction = friction;
+        elation.events.fire({type: 'physics_force_update', element: this});
+      }
     }
     this.computeVelocityForDistance = function(dist, friction, mass) {
       var a = friction;
@@ -139,21 +177,29 @@ elation.require([], function() {
     this.sleepstate = function() {
       return !(this.friction > 1e-6 && body.velocity.lengthSq() > 1e-6);
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        friction: this.friction,
+      };
+    }
   });
   elation.extend("physics.forces.anisotropicfriction", function(body, args) {
+    this.type = 'anisotropicfriction';
     this.friction = args;
-    this.force = new THREE.Vector3();
+
+    let _force = new THREE.Vector3();
 
     this.apply = function() {
-      this.force.set(0,0,0);
+      _force.set(0,0,0);
       if (this.friction) {
         var relvel = body.worldToLocalDir(body.velocity.clone());
-        this.force.x = relvel.x * -1 * this.friction.x * body.mass;
-        this.force.y = relvel.y * -1 * this.friction.y * body.mass;
-        this.force.z = relvel.z * -1 * this.friction.z * body.mass;
-        body.localToWorldDir(this.force);
+        _force.x = relvel.x * -1 * this.friction.x * body.mass;
+        _force.y = relvel.y * -1 * this.friction.y * body.mass;
+        _force.z = relvel.z * -1 * this.friction.z * body.mass;
+        body.localToWorldDir(_force);
       }
-      body.applyForce(this.force);
+      body.applyForce(_force);
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
     this.update = function(updateargs) {
@@ -163,35 +209,50 @@ elation.require([], function() {
     this.sleepstate = function() {
       return !(this.friction.lengthSq() > 1e-6 && body.velocity.lengthSq() > 1e-6);
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        friction: this.friction,
+      };
+    }
   });
   elation.extend("physics.forces.drag", function(body, args) {
+    this.type = 'drag';
     this.drag = args;
-    this.force = new THREE.Vector3();
+
+    let _force = new THREE.Vector3();
     this.sleeping = false;
 
     this.apply = function() {
-      this.force.set(0,0,0);
+      _force.set(0,0,0);
       if (this.drag > 0) {
         var v = body.velocity.length();
-        this.force.copy(body.velocity).multiplyScalar(-.5*this.drag*v);
+        _force.copy(body.velocity).multiplyScalar(-.5*this.drag*v);
       }
-      body.applyForce(this.force);
+      body.applyForce(_force);
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
     this.update = function(updateargs) {
       this.drag = updateargs;
       console.log('set drag to ', this.drag);
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        drag: this.drag,
+      };
+    }
     this.update(args);
   });
   elation.extend("physics.forces.aero", function(body, args) {
+    this.type = 'aero';
     if (!args) args = {};
     this.body = body;
     this.tensor = args.tensor || new THREE.Matrix4();
     this.position = args.position || new THREE.Vector3();
     this.sleeping = false;
 
-    this._tmpvec = new THREE.Vector3();
+    let _tmpvec = new THREE.Vector3();
 
     this.apply = function() {
       var force = this.getForceFromTensor(this.getTensor());
@@ -199,11 +260,11 @@ elation.require([], function() {
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
     this.getForceFromTensor = function(tensor) {
-      this.body.worldToLocalDir(this._tmpvec.copy(this.body.velocity)).negate();
-      //var before = this._tmpvec.clone();
-      this.getTensor().multiplyVector3(this._tmpvec).multiplyScalar(.5);
-      //console.log('parent: ' + VECDUMP(this.body.velocity) + 'before: ' + VECDUMP(before) + ', after: ' + VECDUMP(this._tmpvec));
-      return this._tmpvec;
+      this.body.worldToLocalDir(_tmpvec.copy(this.body.velocity)).negate();
+      //var before = _tmpvec.clone();
+      this.getTensor().multiplyVector3(_tmpvec).multiplyScalar(.5);
+      //console.log('parent: ' + VECDUMP(this.body.velocity) + 'before: ' + VECDUMP(before) + ', after: ' + VECDUMP(_tmpvec));
+      return _tmpvec;
     }
     this.getTensor = function() {
       return this.tensor;
@@ -224,9 +285,18 @@ elation.require([], function() {
       }
       elation.events.fire({type: 'physics_force_update', element: this});
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        drag: this.drag,
+        tensor: this.tensor,
+        position: {x: this.position.x, y: this.position.y, z: this.position.z},
+      };
+    }
   });
 
   elation.extend("physics.forces.aerocontrol", function(body, args) {
+    this.type = 'aerocontrol';
     this.body = body;
     this.tensor = args.tensor || new THREE.Matrix4();
     this.tensor_min = args.tensor_min || new THREE.Matrix4();
@@ -235,7 +305,7 @@ elation.require([], function() {
     this.control = 0;
     this.sleeping = false;
 
-    this._tmpmat = new THREE.Matrix4();
+    let _tmpmat = new THREE.Matrix4();
 
     this.getTensor = function() {
       if (this.control <= -1) {
@@ -250,21 +320,30 @@ elation.require([], function() {
       return this.tensor;
     }
     this.interpolate = function(a, b, prop) {
-      this._tmpmat.set(
+      _tmpmat.set(
         a.n11 * (1 - prop) + b.n11 * prop, a.n12 * (1 - prop) + b.n12 * prop, a.n13 * (1 - prop) + b.n13 * prop, 0,
         a.n21 * (1 - prop) + b.n21 * prop, a.n22 * (1 - prop) + b.n22 * prop, a.n23 * (1 - prop) + b.n23 * prop, 0,
         a.n31 * (1 - prop) + b.n31 * prop, a.n32 * (1 - prop) + b.n32 * prop, a.n33 * (1 - prop) + b.n33 * prop, 0,
         0, 0, 0, 1
       );
-      return this._tmpmat;
+      return _tmpmat;
     }
     this.setControl = function(c) {
       this.control = c;
+    }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        drag: this.drag,
+        tensor: this.tensor,
+        position: {x: this.position.x, y: this.position.y, z: this.position.z},
+      };
     }
   });
   elation.physics.forces.aerocontrol.prototype = new elation.physics.forces.aero();
 
   elation.extend("physics.forces.buoyancy", function(body, args) {
+    this.type = 'buoyancy';
     this.body = body;
     this.density = args.density || 1000; // water = 1000 kg/m^3
     this.volume = args.volume || 1;
@@ -305,9 +384,20 @@ elation.require([], function() {
     this.update = function() {
       elation.events.fire({type: 'physics_force_update', element: this});
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        density: this.density,
+        volume: this.volume,
+        maxdepth: this.maxdepth,
+        waterheight: this.waterheight,
+        position: {x: this.position.x, y: this.position.y, z: this.position.z},
+      };
+    }
   });
 
   elation.extend("physics.forces.spring", function(body, args) {
+    this.type = 'spring';
     this.body = body;
     this.connectionpoint = args.connectionpoint || new THREE.Vector3(0,0,0);
     this.otherconnectionpoint = args.otherconnectionpoint || new THREE.Vector3(0,0,0);
@@ -361,8 +451,23 @@ elation.require([], function() {
       var ows = (this.other ? this.other.localToWorldPos(_tmpvec2.copy(this.otherconnectionpoint)) : this.anchor);
       return (lws.distanceToSquared(ows) <= 1e6);
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        connectionpoint: this.connectionpoint,
+        otherconnectionpoint: this.otherconnectionpoint,
+        other: this.other,
+        anchor: this.anchor,
+        strength: this.strength,
+        midpoint: this.midpoint,
+        restlength: this.restlength,
+        bungee: this.bungee,
+        hard: this.hard,
+      };
+    }
   });
   elation.extend("physics.forces.magnet", function(body, args) {
+    this.type = 'magnet';
     this.force = new THREE.Vector3();
     this.anchor = args.anchor;
     this.strength = args.strength || 1;
@@ -394,8 +499,16 @@ elation.require([], function() {
       }
       elation.events.fire({type: 'physics_force_update', element: this});
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        anchor: this.anchor,
+        strength: this.strength,
+      };
+    }
   });
   elation.extend("physics.forces.repel", function(body, args) {
+    this.type = 'repel';
     this.force = new THREE.Vector3();
     this.anchor = args.anchor;
     this.strength = args.strength || 1;
@@ -423,9 +536,17 @@ elation.require([], function() {
       }
       elation.events.fire({type: 'physics_force_update', element: this});
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        anchor: this.anchor,
+        strength: this.strength,
+      };
+    }
   });
 
   elation.extend("physics.forces.electrostatic", function(body, args) {
+    this.type = 'electrostatic';
     this.force = new THREE.Vector3();
     this.charge = elation.utils.any(args.charge, 1);
     this.maxdist = elation.utils.any(args.maxdist, Infinity);
@@ -490,6 +611,13 @@ elation.require([], function() {
         this[k] = updateargs[k];
       }
       elation.events.fire({type: 'physics_force_update', element: this});
+    }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        charge: this.charge,
+        maxdist: this.maxdist,
+      };
     }
   });
 });
