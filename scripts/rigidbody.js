@@ -1,21 +1,22 @@
-elation.require([], function() {
+elation.require(['physics.common'], function() {
   elation.extend("physics.rigidbody", function(args) {
-    this.position = new THREE.Vector3();
-    this.positionWorld = new THREE.Vector3();
-    this.orientation = new THREE.Quaternion();
-    this.orientationWorld = new THREE.Quaternion();
+    this.id = elation.physics.uniqueid++;
+    this.position = new elation.physics.vector3();
+    this.positionWorld = new elation.physics.vector3();
+    this.orientation = new elation.physics.quaternion();
+    this.orientationWorld = new elation.physics.quaternion();
     this.scale = new THREE.Vector3(1, 1, 1);
-    this.velocity = new THREE.Vector3();
-    this.acceleration = new THREE.Vector3();
-    this.angular = new THREE.Vector3();
-    this.angularacceleration = new THREE.Vector3();
+    this.velocity = new elation.physics.vector3();
+    this.acceleration = new elation.physics.vector3();
+    this.angular = new elation.physics.vector3();
+    this.angularacceleration = new elation.physics.vector3();
     this.forces = [];
     this.constraints = [];
     this.mass = 0;
-    this.state = {sleeping: true, accelerating: false, moving: false, rotating: false, colliding: false};
+    this.state = {sleeping: true, accelerating: false, moving: false, rotating: false, colliding: false, changed: false};
     this.momentInverse = new THREE.Matrix4().identity();
-    this.linearDamping = 1;
-    this.angularDamping = 1;
+    this.linearDamping = 0;
+    this.angularDamping = 0;
     this.restitution = 1;
     this.timescale = 1;
     this.paused = false;
@@ -42,6 +43,7 @@ elation.require([], function() {
           this[k] = args[k];
         }
       }
+      if (!this.id && this.object) this.id = this.object.objects['3d'].uuid;
       this.updateState();
     }
     this.updateState = function() {
@@ -63,6 +65,8 @@ elation.require([], function() {
       this.state.accelerating = (this.acceleration && this.acceleration.lengthSq() > lambda);
       this.state.moving = (this.velocity && this.velocity.lengthSq() > lambda);
       this.state.rotating = ((this.angular && this.angular.lengthSq() > lambda) || (this.angularacceleration && this.angularacceleration.lengthSq() > lambda));
+
+      this.state.changed = this.hasChanged();
 
       this.state.sleeping = this.paused || !(this.state.forces || this.state.accelerating || this.state.moving || this.state.rotating);
       return this.state.sleeping;
@@ -125,6 +129,7 @@ elation.require([], function() {
         this.updateAcceleration({});
         this.updateState();
         //console.log('added new force', force);
+        elation.events.fire({type: 'force_add', element: this, data: force});
       } else {
         console.log('Unknown force type: ' + type);
       }
@@ -147,7 +152,8 @@ elation.require([], function() {
       if (removes.length > 0) {
         removes.sort();
         for (var i = removes.length; i > 0; --i) {
-          this.forces.splice(i, 1);
+          let removedforces = this.forces.splice(i, 1);
+          elation.events.fire({type: 'force_remove', element: this, data: removedforces[0]});
         }
       }
     }
@@ -358,6 +364,7 @@ elation.require([], function() {
         }
       }
       this.collider.getInertialMoment();
+      elation.events.fire({type: 'collider_change', element: this, data: this.collider});
     }
     this.setDamping = function(linear, angular) {
       if (typeof angular == 'undefined') angular = linear;
@@ -371,9 +378,13 @@ elation.require([], function() {
       this.angularDamping = angular;
     }
     this.add = function(body) {
+      if (body.parent && body.parent !== this) {
+        body.parent.remove(body);
+      }
       var idx = this.children.indexOf(body);
       if (idx == -1) this.children.push(body);
       body.parent = this;
+      this.position.changed = true; // Force hasChanged to be true
     }
     this.remove = function(body) {
       var idx = this.children.indexOf(body);
@@ -397,6 +408,21 @@ elation.require([], function() {
         p = p.parent;
       }
       return scale;
+    }
+    this.hasChanged = function() {
+      return this.position.changed || this.orientation.changed || this.velocity.changed ||
+             this.acceleration.changed ||this.angular.changed || this.angularacceleration.changed;
+    }
+    this.resetChangedFlag = function() {
+      this.position.reset();
+      this.positionWorld.reset();
+      this.orientation.reset();
+      //this.orientationWorld.reset();
+      if (this.velocity.reset) this.velocity.reset();
+      this.acceleration.reset();
+      if (this.scale.reset) this.scale.reset();
+      this.angular.reset();
+      this.angularacceleration.reset();
     }
     this.init();
   });
