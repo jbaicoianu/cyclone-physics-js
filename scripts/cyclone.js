@@ -1,4 +1,4 @@
-elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions"], function() {
+elation.require(["physics.common", "physics.processors", "physics.processors.worker", "physics.processors.cpu", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions"], function() {
   elation.extend("physics.system", function(args) {
     this.physicsmatrix = new THREE.Matrix4().set(1, 1, .5, 0, 0, 1, 1, 0, 0, 0, 1, 0);
     this.active = false;
@@ -10,8 +10,10 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.substep = elation.utils.any(this.args.substep, true);
     this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 1/10);
     this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 6);
+    this.processortype = elation.utils.any(this.args.processortype, 'cpu');
     this.timescale = 1;
     
+    elation.physics.uniqueid = 1;
 
     this.init = function() {
       if (this.args.autostart !== false) {
@@ -21,7 +23,8 @@ elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "p
     this.start = function() {
       this.active = true;
       if (!this.processor) {
-        this.processor = new elation.physics.processor.cpu(this);
+        let processortype = (this.processortype in elation.physics.processor ? this.processortype : 'cpu');
+        this.processor = new elation.physics.processor[processortype](this);
       }
     }
     this.stop = function() {
