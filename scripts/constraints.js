@@ -1,4 +1,4 @@
-elation.require([], function() {
+elation.require(['physics.common'], function() {
   /**
    * constraints
    */
