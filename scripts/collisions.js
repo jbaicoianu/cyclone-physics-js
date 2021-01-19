@@ -2,7 +2,7 @@
 /**
  * colliders 
  */
-elation.require([], function() {
+elation.require(['physics.common', 'utils.math'], function() {
 
   elation.extend("physics.colliders.helperfuncs", new function() {
     this.sphere_sphere = function() {
@@ -1076,6 +1076,10 @@ elation.require([], function() {
     this.radius = args.radius || args;
     this.scale = args.scale || new THREE.Vector3(1,1,1),
     this.offset = args.offset || false;
+    this.trigger = elation.utils.any(args.trigger, false);
+
+    if (!(this.scale instanceof THREE.Vector3)) this.scale = new THREE.Vector3().copy(args.scale);
+    if (this.offset !== false && !(this.offset instanceof THREE.Vector3)) this.offset = new THREE.Vector3().copy(args.offset);
 
     this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
@@ -1113,6 +1117,15 @@ elation.require([], function() {
         0, 0, 0, 1);
       return this.momentInverse;
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        radius: this.radius,
+        scale: {x: this.scale.x, y: this.scale.y, z: this.scale.z},
+        offset: {x: this.offset.x, y: this.offset.y, z: this.offset.z},
+        trigger: this.trigger,
+      };
+    }
   });
   elation.extend("physics.colliders.plane", function(body, args) {
     this.type = 'plane';
@@ -1121,6 +1134,7 @@ elation.require([], function() {
     this.normal = args.normal || new THREE.Vector3(0,1,0);
     this.offset = args.offset || 0;
     this.radius = Infinity;
+    this.trigger = elation.utils.any(args.trigger, false);
 
     this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
@@ -1139,6 +1153,14 @@ elation.require([], function() {
       this.momentInverse = new THREE.Matrix4().identity();
       return this.momentInverse;
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        normal: this.normal,
+        offset: this.offset,
+        trigger: this.trigger,
+      };
+    }
   });
   elation.extend("physics.colliders.box", function(body, args) {
     this.type = 'box';
@@ -1146,8 +1168,13 @@ elation.require([], function() {
     this.body = body;
     this.min = args.min || new THREE.Vector3(0,0,0);
     this.max = args.max || new THREE.Vector3(0,0,0);
-    this.halfsize = this.max.clone().sub(this.min).divideScalar(2);
-    this.offset = this.max.clone().add(this.min).divideScalar(2);
+    this.trigger = elation.utils.any(args.trigger, false);
+
+    if (!(this.min instanceof THREE.Vector3)) this.min = new THREE.Vector3().copy(args.min);
+    if (!(this.max instanceof THREE.Vector3)) this.max = new THREE.Vector3().copy(args.max);
+
+    this.halfsize = new THREE.Vector3().copy(this.max).sub(this.min).divideScalar(2);
+    this.offset = new THREE.Vector3().copy(this.max).add(this.min).divideScalar(2);
 
     this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
@@ -1208,6 +1235,15 @@ elation.require([], function() {
       }
       return v;
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        min: {x: this.min.x, y: this.min.y, z: this.min.z},
+        max: {x: this.max.x, y: this.max.y, z: this.max.z},
+        offset: {x: this.offset.x, y: this.offset.y, z: this.offset.z},
+        trigger: this.trigger,
+      };
+    }
   });
   elation.extend("physics.colliders.cylinder", function(body, args) {
     this.type = 'cylinder';
@@ -1216,6 +1252,9 @@ elation.require([], function() {
     this.radius = args.radius;
     this.height = args.height;
     this.offset = args.offset || new THREE.Vector3();
+    this.trigger = elation.utils.any(args.trigger, false);
+
+    if (!(this.offset instanceof THREE.Vector3)) this.offset = new THREE.Vector3().copy(args.offset);
 
     this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
@@ -1246,6 +1285,15 @@ elation.require([], function() {
         0, 0, 0, 1);
       return this.momentInverse;
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        radius: this.radius,
+        height: this.height,
+        offset: this.offset,
+        trigger: this.trigger,
+      };
+    }
   });
   elation.extend("physics.colliders.capsule", function(body, args) {
     this.type = 'capsule';
@@ -1254,6 +1302,7 @@ elation.require([], function() {
     this.radius = args.radius;
     this.length = args.length;
     this.offset = args.offset;
+    this.trigger = elation.utils.any(args.trigger, false);
 
     this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
@@ -1286,6 +1335,15 @@ elation.require([], function() {
         0, 0, 0, 1);
       return this.momentInverse;
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        radius: this.radius,
+        length: this.length,
+        offset: this.offset,
+        trigger: this.trigger,
+      };
+    }
   });
   elation.extend("physics.colliders.mesh", function(body, args) {
     this.type = 'mesh';
@@ -1293,61 +1351,77 @@ elation.require([], function() {
     this.body = body;
 
     this.mesh = args.mesh;
+    this.modeldata = args.modeldata;
     this.radius = 0;
+    this.trigger = elation.utils.any(args.trigger, false);
 
     this.extractTriangles = function(mesh) {
       let triangles = [];
       let radiusSq = 0;
 
-      if (this.mesh.geometry) {
+      if (!this.modeldata && this.mesh && this.mesh.geometry) {
         if (this.mesh.geometry instanceof THREE.BufferGeometry) {
-          let positions = this.mesh.geometry.attributes.position,
-              posarr = positions.array;
+          this.modeldata = {
+            positions: this.mesh.geometry.attributes.position.array,
+          };
           if (this.mesh.geometry.index) {
-            let idx = this.mesh.geometry.index,
-                idxarr = idx.array;
-            for (var i = 0; i < idx.count / 3; i++) {
-              let offset = i * 3,
-                  v1 = idxarr[offset] * 3,
-                  v2 = idxarr[offset+1] * 3,
-                  v3 = idxarr[offset+2] * 3,
-
-                  p1 = new THREE.Vector3((posarr[v1]), (posarr[v1 + 1]), (posarr[v1 + 2])),
-                  p2 = new THREE.Vector3((posarr[v2]), (posarr[v2 + 1]), (posarr[v2 + 2])),
-                  p3 = new THREE.Vector3((posarr[v3]), (posarr[v3 + 1]), (posarr[v3 + 2])),
-
-/*
-                  p1 = new THREE.Vector3((posarr[v1]), (posarr[v1 + 1]), (posarr[v1 + 2])),
-                  p2 = new THREE.Vector3((posarr[v2]), (posarr[v2 + 1]), (posarr[v2 + 2])),
-                  p3 = new THREE.Vector3((posarr[v3]), (posarr[v3 + 1]), (posarr[v3 + 2])),
-*/                  triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
-
-              triangles.push(triangle);
-
-              let l1 = p1.lengthSq(),
-                  l2 = p2.lengthSq(),
-                  l3 = p3.lengthSq();
-              if (l1 > radiusSq) radiusSq = l1;
-              if (l2 > radiusSq) radiusSq = l2;
-              if (l3 > radiusSq) radiusSq = l3;
-            }
+            this.modeldata.index = this.mesh.geometry.index.array;
           } else {
-            for (var i = 0; i < positions.count / 3; i++) {
-              let offset = i * 3 * 3,
-                  p1 = new THREE.Vector3(posarr[offset    ], posarr[offset + 1], posarr[offset + 2]),
-                  p2 = new THREE.Vector3(posarr[offset + 3], posarr[offset + 4], posarr[offset + 5]),
-                  p3 = new THREE.Vector3(posarr[offset + 6], posarr[offset + 7], posarr[offset + 8]),
-                  triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
-
-              triangles.push(triangle);
-
-              let l1 = p1.lengthSq(),
-                  l2 = p2.lengthSq(),
-                  l3 = p3.lengthSq();
-              if (l1 > radiusSq) radiusSq = l1;
-              if (l2 > radiusSq) radiusSq = l2;
-              if (l3 > radiusSq) radiusSq = l3;
+            let numverts = this.modeldata.positions.length / 3;
+            this.modeldata.index = new Uint16Array(numverts);
+            for (let i = 0; i < numverts; i++) {
+              this.modeldata.index[i] = i;
             }
+          }
+        }
+      }
+      if (this.modeldata) {
+        if (this.modeldata.index) {
+          let idxarr = this.modeldata.index;
+          let posarr = this.modeldata.positions;
+          for (var i = 0; i < idxarr.length / 3; i++) {
+            let offset = i * 3,
+                v1 = idxarr[offset] * 3,
+                v2 = idxarr[offset+1] * 3,
+                v3 = idxarr[offset+2] * 3,
+
+                p1 = new THREE.Vector3((posarr[v1]), (posarr[v1 + 1]), (posarr[v1 + 2])),
+                p2 = new THREE.Vector3((posarr[v2]), (posarr[v2 + 1]), (posarr[v2 + 2])),
+                p3 = new THREE.Vector3((posarr[v3]), (posarr[v3 + 1]), (posarr[v3 + 2])),
+
+  /*
+                p1 = new THREE.Vector3((posarr[v1]), (posarr[v1 + 1]), (posarr[v1 + 2])),
+                p2 = new THREE.Vector3((posarr[v2]), (posarr[v2 + 1]), (posarr[v2 + 2])),
+                p3 = new THREE.Vector3((posarr[v3]), (posarr[v3 + 1]), (posarr[v3 + 2])),
+  */
+                triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
+
+            triangles.push(triangle);
+
+            let l1 = p1.lengthSq(),
+                l2 = p2.lengthSq(),
+                l3 = p3.lengthSq();
+            if (l1 > radiusSq) radiusSq = l1;
+            if (l2 > radiusSq) radiusSq = l2;
+            if (l3 > radiusSq) radiusSq = l3;
+          }
+        } else {
+          let posarr = this.modeldata.positions;
+          for (var i = 0; i < posarr.length / 9; i++) {
+            let offset = i * 3 * 3,
+                p1 = new THREE.Vector3(posarr[offset    ], posarr[offset + 1], posarr[offset + 2]),
+                p2 = new THREE.Vector3(posarr[offset + 3], posarr[offset + 4], posarr[offset + 5]),
+                p3 = new THREE.Vector3(posarr[offset + 6], posarr[offset + 7], posarr[offset + 8]),
+                triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
+
+            triangles.push(triangle);
+
+            let l1 = p1.lengthSq(),
+                l2 = p2.lengthSq(),
+                l3 = p3.lengthSq();
+            if (l1 > radiusSq) radiusSq = l1;
+            if (l2 > radiusSq) radiusSq = l2;
+            if (l3 > radiusSq) radiusSq = l3;
           }
         }
       }
@@ -1381,6 +1455,7 @@ elation.require([], function() {
           let obj = parents[j];
           if (!bodies[obj.uuid]) {
             bodies[obj.uuid] = new elation.physics.rigidbody();
+            bodies[obj.uuid].id = obj.uuid;
             bodies[obj.uuid].position.copy(obj.position);
             bodies[obj.uuid].scale.copy(obj.scale);
             bodies[obj.uuid].orientation.copy(obj.quaternion);
@@ -1396,7 +1471,9 @@ elation.require([], function() {
       }
     }
 
-    this.extractObjects(this.mesh);
+    if (this.mesh) {
+      this.extractObjects(this.mesh);
+    }
     this.triangles = this.extractTriangles(this.mesh);
 
     this.getContacts = function(other, contacts, dt) {
@@ -1433,6 +1510,13 @@ elation.require([], function() {
     this.distanceTo = function(point) {
       return this.normal.dot(point) + this.offset;
     }
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        modeldata: this.modeldata,
+        trigger: this.trigger,
+      };
+    }
   });
   elation.extend("physics.colliders.triangle", function(body, args) {
     this.type = 'triangle';
@@ -1443,6 +1527,7 @@ elation.require([], function() {
     this.v1 = new THREE.Vector3();
 
     this.normal = new THREE.Vector3(0,1,0);
+    this.trigger = elation.utils.any(args.trigger, false);
 
     this.updatePoints = function(p1, p2, p3) {
       this.p1 = p1;
@@ -1536,6 +1621,15 @@ elation.require([], function() {
         return triangleClosestPoint.distanceTo(point);
       }
     })();
+    this.toJSON = function() {
+      return {
+        type: this.type,
+        p1: this.p1,
+        p2: this.p2,
+        p3: this.p3,
+        trigger: this.trigger,
+      };
+    }
   });
 
   elation.extend("physics.contact", function(contactargs) {
