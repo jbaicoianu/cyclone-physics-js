@@ -13,6 +13,7 @@ elation.require(['physics.common'], function() {
     this.forces = [];
     this.constraints = [];
     this.mass = 0;
+    this.gravity = false;
     this.state = {sleeping: true, accelerating: false, moving: false, rotating: false, colliding: false, changed: false};
     this.momentInverse = new THREE.Matrix4().identity();
     this.linearDamping = 0;
@@ -385,11 +386,13 @@ elation.require(['physics.common'], function() {
       if (idx == -1) this.children.push(body);
       body.parent = this;
       this.position.changed = true; // Force hasChanged to be true
+      elation.events.fire({type: 'add', element: this, data: body});
     }
     this.remove = function(body) {
       var idx = this.children.indexOf(body);
       if (idx != -1) {
         this.children.splice(idx,1);
+        elation.events.fire({type: 'remove', element: this, data: body});
         body.parent = undefined;
       }
     }
