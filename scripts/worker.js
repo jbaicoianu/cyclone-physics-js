@@ -15,7 +15,14 @@ elation.require(['physics.common', 'physics.cyclone', 'physics.processors.cpu', 
     }, 1000 / this.fps);
 
     this.handleMessage = function(msg) {
-      if (msg.type == 'object_changes') {
+      if (msg.type == 'object_remove') {
+        let object = this.objects[msg.objectid],
+            parent = this.objects[msg.parentid];
+        //console.log('worker object removed', parent, object, object.parent, msg);
+        if (object && parent) {
+          parent.remove(object);
+        }
+      } else if (msg.type == 'object_changes') {
         let framedata = {};
         for (let i = 0; i < msg.changes.length; i++) {
           let obj = msg.changes[i];
@@ -33,8 +40,9 @@ elation.require(['physics.common', 'physics.cyclone', 'physics.processors.cpu', 
               dynamicfriction: obj.dynamicfriction,
               staticfriction: obj.staticfriction,
               //forces: object.force_accumulator,
-              lineardamping: obj.lineardamping,
-              angulardamping: obj.angulardamping,
+              linearDamping: obj.linearDamping,
+              angularDamping: obj.angularDamping,
+              gravity: obj.gravity,
             });
 //console.log('new rigidbody', obj.id, obj.collider, obj, this.objects[obj.id], this.objects, msg.changes);
             if (obj.collider) {
@@ -77,11 +85,12 @@ elation.require(['physics.common', 'physics.cyclone', 'physics.processors.cpu', 
             body.dynamicfriction = obj.dynamicfriction;
             body.staticfriction = obj.staticfriction;
             //body.force_accumulator.copy(obj.forces);
-            body.lineardamping = obj.lineardamping;
+            body.linearDamping = obj.linearDamping;
             body.angulardamping = obj.angulardamping;
+            body.gravity = obj.gravity;
 
             if (body.parent.id != obj.parentid) {
-console.log('object parent changed in worker', body.parent.id, obj.parentid, body, obj, this.objects[obj.parentid]);
+              //console.log('object parent changed in worker', body.parent.id, obj.parentid, body, obj, this.objects[obj.parentid]);
               if (this.objects[obj.parentid]) {
                 //body.parent.remove(body);
                 this.objects[obj.parentid].add(body);
@@ -90,11 +99,16 @@ console.log('object parent changed in worker', body.parent.id, obj.parentid, bod
             body.updateAcceleration(framedata);
           }
         }
-
+      } else if (msg.type == 'collider_change') {
+        //console.log('worker says a collider changed', msg, msg.collider.length, msg.collider.offset, msg.collider.meshdata);
+        let object = this.objects[msg.objectid];
+        if (object) {
+          object.setCollider(msg.collider.type, msg.collider);
+        }
       } else if (msg.type == 'force_update') {
         let object = this.objects[msg.objectid];
         if (object && object.forces[msg.forcenum]) {
-//console.log('update force', object, object.forces[msg.forcenum], msg.force);
+          //console.log('update force', object, object.forces[msg.forcenum], msg.force);
           object.forces[msg.forcenum].update(msg.force);
           object.updateAcceleration({});
         }
