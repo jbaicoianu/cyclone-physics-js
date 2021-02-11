@@ -159,7 +159,7 @@ elation.require(['physics.common'], function() {
       elation.events.fire({type: 'physics_force_apply', element: this});
     }
     this.update = function(updateargs) {
-      let friction = updateargs.friction || updateargs;
+      let friction = elation.utils.any(updateargs.friction, updateargs);
       if (friction != this.friction) {
         this.friction = friction;
         elation.events.fire({type: 'physics_force_update', element: this});
