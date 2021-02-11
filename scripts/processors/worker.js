@@ -37,20 +37,27 @@ elation.require(['physics.processors'], function() {
             acceleration: object.acceleration.toJSON(),
             angular: object.angular.toJSON(),
             mass: object.mass,
+            gravity: object.gravity,
             restitution: object.restitution,
             dynamicfriction: object.material.dynamicfriction,
             staticfriction: object.material.staticfriction,
             //forces: object.force_accumulator,
-            lineardamping: object.linearDamping,
-            angulardamping: object.angularDamping,
+            linearDamping: object.linearDamping,
+            angularDamping: object.angularDamping,
             //sleeping: true,
           };
           if (object.parent) {
 //console.log('object in main thread had parent', object.id, object.parent.id, object, object.parent);
             objdata.parentid = object.parent.id;
           }
-          if (!this.objects[objdata.id] || this.objects[objdata.id] !== object) {
+          if (!this.objects[objdata.id]) { // || this.objects[objdata.id] !== object) {
             this.objects[objdata.id] = object;
+            elation.events.add(object, 'add', ev => this.sendAdd(object));
+            elation.events.add(object, 'remove', ev => this.sendRemove(ev.target, ev.data));
+            if (object.collider) {
+              objdata.collider = object.collider.toJSON();
+            }
+            elation.events.add(object, 'collider_change', ev => this.sendColliderUpdate(object));
             if (object.forces.length > 0) {
               objdata.forces = [];
               for (let i = 0; i < object.forces.length; i++) {
@@ -59,9 +66,6 @@ elation.require(['physics.processors'], function() {
                 elation.events.add(f, 'physics_force_update', ev => this.worker.postMessage({type: 'force_update', objectid: objdata.id, forcenum: i, force: f.toJSON()}));
               }
             }
-          }
-          if (object.collider) {
-            objdata.collider = object.collider.toJSON();
           }
           summary.push(objdata);
           //object.resetChangedFlag();
@@ -131,6 +135,19 @@ elation.require(['physics.processors'], function() {
           elation.events.fire({element: obj, type: "physics_update"});
         }
       }
+    }
+    this.sendColliderUpdate = function(object) {
+      //console.log('send a collider change event', object.collider);
+      this.worker.postMessage({type: 'collider_change', objectid: object.id, collider: object.collider.toJSON()});
+    }
+    this.sendAdd = function(ev) {
+      // TODO - should notify the worker of newly-added objects instead of detecting it from the object_changes messages
+      //console.log('send the add to the worker (do nothing)', ev);
+      //this.worker.postMessage({type: 'collider_change', objectid: object.id, collider: object.collider.toJSON()});
+    }
+    this.sendRemove = function(object, parent) {
+      console.log('send the remove to the worker', object, parent, object.id, parent.id);
+      this.worker.postMessage({type: 'object_remove', parentid: parent.id, objectid: object.id});
     }
   }, false, elation.physics.processor.base);
 });
