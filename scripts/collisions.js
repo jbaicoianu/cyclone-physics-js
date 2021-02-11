@@ -1301,7 +1301,7 @@ elation.require(['physics.common', 'utils.math'], function() {
     this.body = body;
     this.radius = args.radius;
     this.length = args.length;
-    this.offset = args.offset;
+    this.offset = args.offset || new THREE.Vector3();
     this.trigger = elation.utils.any(args.trigger, false);
 
     this.getContacts = function(other, contacts, dt) {
