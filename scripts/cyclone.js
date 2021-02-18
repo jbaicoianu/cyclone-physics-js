@@ -1,4 +1,4 @@
-elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions"], function() {
+elation.require(["physics.processors", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions", "physics.common"], function() {
   elation.extend("physics.system", function(args) {
     this.physicsmatrix = new THREE.Matrix4().set(1, 1, .5, 0, 0, 1, 1, 0, 0, 0, 1, 0);
     this.active = false;
