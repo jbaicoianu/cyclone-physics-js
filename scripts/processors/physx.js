@@ -194,6 +194,8 @@ console.log('load physx js');
   */
   //console.log('add a force', obj.forces, obj, this.objects[obj.id]);
             this.objects[obj.id].setGlobalPose({translation: obj.position, rotation: obj.orientation}, true);
+            this.objects[obj.id].setLinearVelocity(obj.velocity);
+            this.objects[obj.id].setAngularVelocity(obj.angular);
             if (this.objects[obj.id].addForceAtLocalPos) {
               this.objects[obj.id].addForceAtLocalPos(obj.forces, {x: 0, y: 0, z: 0});
             }
@@ -266,6 +268,7 @@ console.log('load physx js');
         if (obj.mass > 0) {
           body.setMassAndUpdateInertia(obj.mass);
           body.setLinearVelocity(obj.velocity, false);
+          body.setAngularVelocity(obj.angular, false);
           body.setAngularDamping(obj.angulardamping);
         //body.wakeUp();
     //body.setRigidBodyFlag(PhysX.PxRigidBodyFlag.eKINEMATIC, true);
