@@ -38,7 +38,7 @@ elation.require(['physics.processors'], function() {
 
       this._tmpvec.copy(obj.angular);
       var theta = this._tmpvec.length();
-      this._tmpvec.divideScalar(theta);
+      if (theta > 0) this._tmpvec.divideScalar(theta);
       this._tmpquat.setFromAxisAngle(this._tmpvec, theta*t);
       obj.orientation.multiply(this._tmpquat);
     }
