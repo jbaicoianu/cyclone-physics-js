@@ -16,8 +16,8 @@ elation.require(['physics.common'], function() {
     this.gravity = false;
     this.state = {sleeping: true, accelerating: false, moving: false, rotating: false, colliding: false, changed: false};
     this.momentInverse = new THREE.Matrix4().identity();
-    this.linearDamping = 0;
-    this.angularDamping = 0;
+    this.linearDamping = 1;
+    this.angularDamping = 1;
     this.restitution = 1;
     this.timescale = 1;
     this.paused = false;
@@ -259,7 +259,7 @@ elation.require(['physics.common'], function() {
       // closure for scratch variables
       var tmpquat = new THREE.Quaternion();
       return function(point) {
-        if (!point) point = new THREE.Vector3();
+        if (!point) point = new elation.physics.vector3();
         if (this.parent) {
           point = this.parent.worldToLocalPos(point);
         }
@@ -276,7 +276,7 @@ elation.require(['physics.common'], function() {
     }
     // local space to parent space
     this.localToParentPos = function(point) {
-      if (!point) point = new THREE.Vector3();
+      if (!point) point = new elation.physics.vector3();
       point.multiply(this.scale);
       return point.applyQuaternion(this.orientation).add(this.position);
     }
