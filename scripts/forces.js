@@ -2,7 +2,6 @@
  * forces
  */
 elation.require(['physics.common'], function() {
-
   elation.extend("physics.forces.gravity", function(body, args) {
     this.type = 'gravity';
     this.others = [];
@@ -244,6 +243,7 @@ elation.require(['physics.common'], function() {
     }
     this.update(args);
   });
+  /*
   elation.extend("physics.forces.aero", function(body, args) {
     this.type = 'aero';
     if (!args) args = {};
@@ -341,6 +341,7 @@ elation.require(['physics.common'], function() {
     }
   });
   elation.physics.forces.aerocontrol.prototype = new elation.physics.forces.aero();
+  */
 
   elation.extend("physics.forces.buoyancy", function(body, args) {
     this.type = 'buoyancy';
