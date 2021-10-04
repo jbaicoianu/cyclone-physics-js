@@ -53,9 +53,9 @@ elation.require(['physics.common'], function() {
 
       if (this.parent) {
         this.orientationWorld.multiplyQuaternions(this.parent.orientationWorld, this.orientation);
-        this.positionWorld.copy(this.position).applyQuaternion(this._tmpquat.copy(this.parent.orientation).inverse()).add(this.parent.positionWorld);
+        this.positionWorld.copy(this.position).applyQuaternion(this._tmpquat.copy(this.parent.orientation).invert()).add(this.parent.positionWorld);
       } else {
-        this.orientationWorld.copy(this.orientation).inverse();
+        this.orientationWorld.copy(this.orientation).invert();
         this.positionWorld.copy(this.position);
       }
 
@@ -286,7 +286,7 @@ elation.require(['physics.common'], function() {
       var tmpquat = new THREE.Quaternion();
       return function(point) {
         if (!point) point = new THREE.Vector3();
-        return point.sub(this.position).applyQuaternion(tmpquat.copy(this.orientation).inverse());
+        return point.sub(this.position).applyQuaternion(tmpquat.copy(this.orientation).invert());
       }
     }();
     // world direction to local direction
@@ -294,7 +294,7 @@ elation.require(['physics.common'], function() {
       // temp variable closure
       var tmpquat = new THREE.Quaternion();
       return function(dir) {
-        return dir.applyQuaternion(tmpquat.copy(this.orientationWorld).inverse());
+        return dir.applyQuaternion(tmpquat.copy(this.orientationWorld).invert());
       }
     }();
     // local direction to world direction
