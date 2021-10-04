@@ -1704,7 +1704,7 @@ elation.require(['physics.common', 'utils.math'], function() {
             0, 0, 0, 1
           );
         }
-        this.worldToContact = new THREE.Matrix4().getInverse(this.contactToWorld);
+        this.worldToContact = new THREE.Matrix4().copy(this.contactToWorld).invert();
       }
     }();
     /**
