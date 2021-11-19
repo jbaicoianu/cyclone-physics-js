@@ -1,6 +1,5 @@
 elation.require(["physics.common", "physics.processors", "physics.processors.worker", "physics.processors.cpu", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions"], function() {
   elation.extend("physics.system", function(args) {
-    this.physicsmatrix = new THREE.Matrix4().set(1, 1, .5, 0, 0, 1, 1, 0, 0, 0, 1, 0);
     this.active = false;
     this.children = [];
     this.processor = false;
@@ -8,8 +7,8 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
     this.position = this.positionWorld = new THREE.Vector3();
     this.orientation = this.orientationWorld = new THREE.Quaternion();
     this.substep = elation.utils.any(this.args.substep, true);
-    this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 1/10);
-    this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 6);
+    this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 20/1000);
+    this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 4);
     this.processortype = elation.utils.any(this.args.processortype, 'cpu');
     this.timescale = 1;
     
@@ -42,9 +41,6 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
       var step = 0;
       while (t > 0) {
         var steptime = (step < steps ? Math.min(t, this.substepMaxDelta) : t);
-        // update matrix with new time values
-        this.physicsmatrix.elements[4] = this.physicsmatrix.elements[9] = steptime;
-        this.physicsmatrix.elements[8] = .5 * steptime * steptime;
 
         // step 1: update forces for each object, gather array of active objects
         var objects = this.processor.update(this.children, steptime);
