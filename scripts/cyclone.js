@@ -49,16 +49,20 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
         // step 1: update forces for each object, gather array of active objects
         var objects = this.processor.update(this.children, steptime);
         if (objects.length > 0) {
-          // step 2: detect contacts
+
+          // step 2: update velocities for all active objects
+          this.processor.iterateVelocities(objects, steptime);
+
+          // step 3: detect contacts
           var collisions = this.processor.collide(steptime);
 
-          // step 3: resolve collisions
+          // step 4: resolve collisions
           if (collisions && collisions.length > 0) {
             this.processor.resolve(steptime, collisions);
           }
 
-          // step 4: run physics simulation on all active objects
-          this.processor.iterate(objects, steptime);
+          // step 5: update positions for all active objects
+          this.processor.iteratePositions(objects, steptime);
         }
         t -= steptime;
         step++;
