@@ -1,4 +1,4 @@
-elation.require(["physics.common", "physics.processors", "physics.processors.worker", "physics.processors.cpu", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions"], function() {
+elation.require(["physics.common", "physics.processors", "physics.processors.worker", "physics.processors.cpu", "physics.processors.physx", "physics.rigidbody", "physics.forces", "physics.constraints", "physics.collisions"], function() {
   elation.extend("physics.system", function(args) {
     this.active = false;
     this.children = [];
