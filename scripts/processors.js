@@ -22,6 +22,10 @@ elation.require(["physics.common"], function() {
     this.iterate = function(objects, t) {
       console.log('iterate in base', this.parent);
     }
+    this.iteratePositions = function(objects, t) {
+    }
+    this.iterateVelocities = function(objects, t) {
+    }
     this.collide = function(t) {
       if (t == 0) return; // paused, do nothing
       var collisions = [];
