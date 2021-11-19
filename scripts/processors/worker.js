@@ -1,17 +1,19 @@
 elation.require(['physics.processors'], function() {
-  elation.extend("physics.processor.worker", function(parent) {
+  elation.extend("physics.processor.worker", function(parent, args={}) {
     elation.physics.processor.base.call(this, parent);
 
     this.worker = new elation.worker.thread('physics.worker', 'physicsworker');
+console.log('make new worker', this.worker);
     elation.events.add(this.worker, 'message', ev => this.handleMessage(ev));
-    //this.worker.postMessage({type: 'start', processortype: 'cpu'});
+    let subprocessor = args.subprocessor || 'cpu',
+        subprocessorargs = args.processorargs || {};
+    this.worker.postMessage({type: 'system_init', processortype: subprocessor, args: subprocessorargs});
     this.emptyresponse = [];
     this.objects = {};
 
     this.update = function(objects, t) {
       if (t == 0) return; // paused, do nothing
       let changes = this.summarizeChanges(objects);
-//console.log(changes);
       this.worker.postMessage({type: 'object_changes', changes: changes});
       return this.emptyresponse;
     }
@@ -26,36 +28,18 @@ elation.require(['physics.processors'], function() {
         //object.updateState();
         if (object.hasChanged()) {
           // FIXME - for now, we just return a full serialization of all changed objects, with a full list of the properties we care about for physics
-          let orientation = object.orientation;
-
-          let objdata = {
-            id: object.id || object.object.objects['3d'].uuid,
-            position: object.position.toJSON(),
-            orientation: object.orientation.toJSON(), //{ x: orientation.x, y: orientation.y, z: orientation.z, w: orientation.w }, // Three.js's quaternion uses _-prefixed names when serialized for some reason
-            scale: object.scale.toJSON ? object.scale.toJSON() : object.scale,
-            velocity: object.velocity.toJSON(),
-            acceleration: object.acceleration.toJSON(),
-            angular: object.angular.toJSON(),
-            mass: object.mass,
-            gravity: object.gravity,
-            restitution: object.restitution,
-            dynamicfriction: object.material.dynamicfriction,
-            staticfriction: object.material.staticfriction,
-            //forces: object.force_accumulator,
-            linearDamping: object.linearDamping,
-            angularDamping: object.angularDamping,
-            //sleeping: true,
-          };
-          if (object.parent) {
-//console.log('object in main thread had parent', object.id, object.parent.id, object, object.parent);
-            objdata.parentid = object.parent.id;
-          }
+          let objdata = this.serializeObject(object);
           if (!this.objects[objdata.id]) { // || this.objects[objdata.id] !== object) {
             this.objects[objdata.id] = object;
-            elation.events.add(object, 'add', ev => this.sendAdd(object));
+            elation.events.add(object, 'add', ev => this.sendAdd(ev.data));
             elation.events.add(object, 'remove', ev => this.sendRemove(ev.target, ev.data));
             if (object.collider) {
               objdata.collider = object.collider.toJSON();
+/*
+setTimeout(() => {
+              this.sendColliderUpdate(object);
+}, 1000);
+*/
             }
             elation.events.add(object, 'collider_change', ev => this.sendColliderUpdate(object));
             if (object.forces.length > 0) {
@@ -121,6 +105,7 @@ elation.require(['physics.processors'], function() {
         let update = updates[k],
             obj = this.objects[k];
         if (obj && /*obj.hasChanged() &&*/ obj.parent) {
+//console.log('update', update.position, update.velocity);
           if (update.position && !obj.position.changed) obj.position.copy(update.position);
           if (update.orientation && !obj.orientation.changed) obj.orientation.copy(update.orientation);
           if (update.velocity && !obj.velocity.changed) obj.velocity.copy(update.velocity);
@@ -137,17 +122,50 @@ elation.require(['physics.processors'], function() {
       }
     }
     this.sendColliderUpdate = function(object) {
-      //console.log('send a collider change event', object.collider);
-      this.worker.postMessage({type: 'collider_change', objectid: object.id, collider: object.collider.toJSON()});
+      console.log('send a collider change event', object.id, object.collider, JSON.stringify(object.collider), object);
+      this.worker.postMessage({type: 'collider_change', objectid: object.id, collider: JSON.parse(JSON.stringify(object.collider))});
     }
-    this.sendAdd = function(ev) {
+    this.sendAdd = function(obj) {
       // TODO - should notify the worker of newly-added objects instead of detecting it from the object_changes messages
       //console.log('send the add to the worker (do nothing)', ev);
       //this.worker.postMessage({type: 'collider_change', objectid: object.id, collider: object.collider.toJSON()});
+console.log('hey, got an add event, what to do?', obj);
+      let objdata = this.serializeObject(obj);
+      this.worker.postMessage({type: 'object_add', object: objdata});
     }
     this.sendRemove = function(object, parent) {
-      console.log('send the remove to the worker', object, parent, object.id, parent.id);
+      //console.log('send the remove to the worker', object, parent, object.id, parent.id);
       this.worker.postMessage({type: 'object_remove', parentid: parent.id, objectid: object.id});
+    }
+    this.serializeObject = function(object) {
+      let objdata = {
+        id: object.id || object.object.objects['3d'].uuid,
+        position: object.position.toJSON(),
+        orientation: object.orientation.toJSON(), //{ x: orientation.x, y: orientation.y, z: orientation.z, w: orientation.w }, // Three.js's quaternion uses _-prefixed names when serialized for some reason
+        scale: object.scale.toJSON ? object.scale.toJSON() : object.scale,
+        velocity: object.velocity.toJSON(),
+        acceleration: object.acceleration.toJSON(),
+        angular: object.angular.toJSON(),
+        mass: object.mass,
+        gravity: object.gravity,
+        restitution: object.restitution,
+        material: {
+          dynamicfriction: object.material.dynamicfriction,
+          staticfriction: object.material.staticfriction,
+        },
+        //forces: object.force_accumulator,
+        linearDamping: object.linearDamping,
+        angularDamping: object.angularDamping,
+        //sleeping: true,
+      };
+      if (object.parent) {
+//console.log('object in main thread had parent', object.id, object.parent.id, object, object.parent);
+        objdata.parentid = object.parent.id;
+      }
+      if (object.collider) {
+        objdata.collider = object.collider.toJSON();
+      }
+      return objdata;
     }
   }, false, elation.physics.processor.base);
 });
