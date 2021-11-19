@@ -19,11 +19,11 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
         this.start();
       }
     }
-    this.start = function() {
+    this.start = function(args) {
       this.active = true;
       if (!this.processor) {
         let processortype = (this.processortype in elation.physics.processor ? this.processortype : 'cpu');
-        this.processor = new elation.physics.processor[processortype](this);
+        this.processor = new elation.physics.processor[processortype](this, args);
       }
     }
     this.stop = function() {
