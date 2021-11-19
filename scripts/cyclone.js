@@ -67,15 +67,18 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
     this.add = function(obj) {
       obj.parent = this;
       this.children.push(obj);
+      elation.events.fire({type: 'add', element: this, data: obj});
     }
     this.remove = function(obj) {
       if (obj.parent && obj.parent != this) {
         obj.parent.remove(obj);
+        elation.events.fire({type: 'remove', element: obj.parent, data: obj});
         obj.parent = false;
       } else {
         var i = this.children.indexOf(obj);
         if (i != -1) {
           this.children.splice(i, 1);
+          elation.events.fire({type: 'remove', element: this, data: obj});
         }
       }
     }
