@@ -6,6 +6,7 @@ elation.require(['physics.common'], function() {
     this.orientation = new elation.physics.quaternion();
     this.orientationWorld = new elation.physics.quaternion();
     this.scale = new THREE.Vector3(1, 1, 1);
+    this.scaleWorld = new THREE.Vector3(1, 1, 1);
     this.velocity = new elation.physics.vector3();
     this.acceleration = new elation.physics.vector3();
     this.angular = new elation.physics.vector3();
@@ -54,6 +55,7 @@ elation.require(['physics.common'], function() {
       if (this.parent) {
         this.orientationWorld.multiplyQuaternions(this.parent.orientationWorld, this.orientation);
         this.positionWorld.copy(this.position).applyQuaternion(this._tmpquat.copy(this.parent.orientation).invert()).add(this.parent.positionWorld);
+        this.scaleWorld.copy(this.scale).multiply(this.parent.scaleWorld);
       } else {
         this.orientationWorld.copy(this.orientation).invert();
         this.positionWorld.copy(this.position);
