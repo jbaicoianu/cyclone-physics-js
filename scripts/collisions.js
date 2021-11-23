@@ -631,27 +631,25 @@ elation.require(['physics.common', 'utils.math'], function() {
     /* capsule helpers */
     this.capsule_sphere = function() {
       // closure scratch variables
-      var spherepos = new THREE.Vector3();
-      var start = new THREE.Vector3();
-      var end = new THREE.Vector3();
-      var point = new THREE.Vector3();
-      var normal = new THREE.Vector3();
+      const spherepos = new THREE.Vector3(),
+            point = new THREE.Vector3(),
+            normal = new THREE.Vector3(),
+            closest = new THREE.Vector3();
 
       return function(capsule, sphere, contacts, dt) {
-        var radius = capsule.radius + sphere.radius;
-        capsule.body.localToWorldPos(start.set(0,-capsule.length/2,0));
-        capsule.body.localToWorldPos(end.set(0,capsule.length/2,0));
+        const radius = capsule.radius + sphere.radius;
+        const capsuleDims = capsule.getDimensions();
         sphere.body.localToWorldPos(point.set(0,0,0));
 
-        var closest = elation.physics.colliders.helperfuncs.closest_point_on_line(start, end, point);
+        elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, point, closest);
         normal.subVectors(closest, point);
-        var distance = normal.length();
+        const distance = normal.length();
   //console.log(distance, radius, capsule.radius, sphere.radius);
         if (distance <= radius) {
           normal.divideScalar(distance);
-          var contact = new elation.physics.contact({
-            normal: normal.clone(),
-            point: closest.add(normal.multiplyScalar(capsule.radius)),
+          let contact = new elation.physics.contact({
+            normal: normal.clone(), // allocate normal
+            point: closest.clone().add(normal.multiplyScalar(capsule.radius)), // allocate point
             penetration: radius - distance,
             bodies: [capsule.body, sphere.body]
           });
