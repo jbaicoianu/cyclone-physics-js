@@ -6,6 +6,7 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
     this.args = args || {};
     this.position = this.positionWorld = new THREE.Vector3();
     this.orientation = this.orientationWorld = new THREE.Quaternion();
+    this.scale = this.scaleWorld = new THREE.Vector3(1, 1, 1);
     this.substep = elation.utils.any(this.args.substep, true);
     this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 20/1000);
     this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 4);
