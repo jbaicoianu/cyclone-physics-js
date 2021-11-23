@@ -892,15 +892,129 @@ elation.require(['physics.common', 'utils.math'], function() {
         }
       }
     }();
-    this.mesh_sphere = function() {
-      // closure scratch variables
+    this.triangle_capsule = function() {
+      // Scratch variables
+      const normal = new THREE.Vector3(),
+            capsuleLine = new THREE.Vector3(),
+            capsuleStart = new THREE.Vector3(),
+            capsuleEnd = new THREE.Vector3(),
+            closestPoint = new THREE.Vector3(),
+            intersectionPoint = new THREE.Vector3(),
+            normalLine = new THREE.Vector3();
 
-      return function(mesh, sphere, contacts, dt) {
-        var localcontacts = [];
+      return function(triangle, capsule, contacts, dt) {
+        // TODO - We'll start off with static collisions here, which should work fine for slow-moving capsules
+        //        This turns out to be prety similar to the dynamic triangle-sphere tests above, just with
+        //        different considerations for normals
+        triangle.body.localToWorldDir(normal.copy(triangle.normal));
 
-          for (var i = 0; i < mesh.triangles.length; i++) {
-            elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], sphere, localcontacts, dt);
+        const worldpoints = triangle.getWorldPoints();
+        const p1 = worldpoints[0],
+              p2 = worldpoints[1],
+              p3 = worldpoints[2];
+
+        // Check if capsule's end-to-end line segment intersects with the triangle
+
+        const capsuleDimensions = capsule.getDimensions();
+
+        capsuleStart.copy(capsuleDimensions.start).sub(capsuleDimensions.radius);
+        capsuleEnd.copy(capsuleDimensions.end).add(capsuleDimensions.radius);
+        //capsuleEnd.z += .01; // FIXME - stupid hack to avoid parallel edge case :(
+
+/*
+        if (Math.abs(normal.dot(capsuleLine)) < 1e6) {
+          // capsule is parallel to triangle
+          // Find the closest point on the capsule to an arbitrary corner, and do a triangle_sphere test on that
+          elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDimensions.start, capsuleDimensions.end, p1, closestPoint);
+          let dist = closestPoint.sub(p1).dot(normal);
+          if (dist >= -capsule.radius && dist <= capsule.radius) {
+console.log('boink it', triangle);
+            //intersectionPlane = { point: closestPoint, t: 0 };
           }
+        } else {
+        }
+*/
+        let intersectionPlane = elation.physics.colliders.helperfuncs.line_plane(capsuleStart, capsuleEnd, p1, p2, p3, intersectionPoint);
+        if (intersectionPlane && intersectionPlane.t >= 0 && intersectionPlane.t <= 1 && triangle.containsPoint(intersectionPlane.point)) {
+          elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDimensions.start, capsuleDimensions.end, intersectionPoint, closestPoint);
+          normal.subVectors(closestPoint, intersectionPlane.point);
+          let dist = normal.length();
+          normal.divideScalar(dist);
+if (dist <= capsule.radius) {
+          // capsule intersects face of triangle
+          // TODO - normal and penetration distance are wrong here
+          let contact = new elation.physics.contact({
+            normal: normal.clone(), // allocate normal
+            point: intersectionPlane.point.clone(), // allocate point
+            penetration: dist - capsule.radius,
+            bodies: [triangle.body, capsule.body],
+            triangle: triangle
+          });
+          contacts.push(contact);
+          return contacts;
+}
+        }
+return;
+        capsuleLine.copy(capsuleEnd).sub(capsuleStart);
+
+        capsuleStart.copy(capsuleDimensions.start).sub(capsuleDimensions.radius);
+        capsuleEnd.copy(capsuleDimensions.end).add(capsuleDimensions.radius);
+
+        // Find closest point on capsule's end-to-end line segment to each edge
+        let intersections = [
+          elation.physics.colliders.helperfuncs.line_cylinder(capsuleStart, capsuleEnd, p1, p2, capsule.radius),
+          elation.physics.colliders.helperfuncs.line_cylinder(capsuleStart, capsuleEnd, p2, p3, capsule.radius),
+          elation.physics.colliders.helperfuncs.line_cylinder(capsuleStart, capsuleEnd, p3, p1, capsule.radius),
+        ];
+
+//console.log(capsule.body.position, capsuleStart, capsuleEnd);
+        let closestIntersectionDist = Infinity;
+        let closestIntersection = null;
+        for (let i = 0; i < intersections.length; i++) {
+          if (intersections[i] != undefined && intersections[i] < closestIntersectionDist) {
+            closestIntersectionDist = intersections[i];
+            closestIntersection = i;
+          }
+        }
+
+        if (closestIntersection !== null) {
+          const intersectionPoint = capsuleStart.clone().sub(capsuleEnd).multiplyScalar(closestIntersectionDist).add(capsuleStart); // allocate point
+
+          elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, closestPoint);
+          normal.x = intersectionPoint.x - closestPoint.x;
+          normal.y = intersectionPoint.y - closestPoint.y;
+          normal.z = intersectionPoint.z - closestPoint.z;
+          normal.normalize();
+
+          intersectionPoint.x += normal.x * -capsule.radius;
+          intersectionPoint.y += normal.y * -capsule.radius;
+          intersectionPoint.z += normal.z * -capsule.radius;
+
+          let contact = new elation.physics.contact({
+            normal: normal.clone(), // allocate normal
+            point: intersectionPoint, // point already allocated
+            //penetrationTime: closestIntersectionDist,
+            penetration: -capsuleStart.distanceTo(intersectionPoint), // FIXME - not sure this is correct, probably need to account for which end is closest along the normal
+            bodies: [triangle.body, capsule.body],
+            triangle: triangle
+          });
+
+          contacts.push(contact);
+          return contacts;
+        }
+
+      }
+    }();
+    this.mesh_sphere = function() {
+      return function(mesh, sphere, contacts, dt) {
+        var localcontacts = [], spherecontacts = [];
+
+        elation.physics.colliders.helperfuncs.sphere_sphere(sphere, mesh.boundingSphere, spherecontacts, dt);
+        if (spherecontacts.length == 0) return;
+
+        for (var i = 0; i < mesh.triangles.length; i++) {
+          elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], sphere, localcontacts, dt);
+        }
 
         if (localcontacts.length > 0) {
           let closestStatic = false,
@@ -933,6 +1047,49 @@ elation.require(['physics.common', 'utils.math'], function() {
         return contacts;
       }
     }();
+    this.mesh_capsule = function() {
+      return function(mesh, capsule, contacts, dt) {
+        var localcontacts = [], spherecontacts = [];
+
+        elation.physics.colliders.helperfuncs.capsule_sphere(capsule, mesh.boundingSphere, spherecontacts, dt);
+        if (spherecontacts.length == 0) return;
+
+
+        for (var i = 0; i < mesh.triangles.length; i++) {
+          elation.physics.colliders.helperfuncs.triangle_capsule(mesh.triangles[i], capsule, localcontacts, dt);
+        }
+
+        if (localcontacts.length > 0) {
+          let closestStatic = false,
+              closestDynamic = false;
+          for (let i = 0; i < localcontacts.length; i++) {
+            let contact = localcontacts[i];
+            if (contact instanceof elation.physics.contact_dynamic) {
+              if (!closestDynamic || closestDynamic.penetrationTime > contact.penetrationTime) {
+                closestDynamic = contact;
+              }
+            } else {
+              if (!closestStatic || closestStatic.penetration > contact.penetration) {
+                closestStatic = contact;
+              }
+            }
+          }
+
+          // Handle static contacts first, since they're equivalent to penetrationTime=0
+          let closest = closestStatic || closestDynamic;
+          if (closest.bodies[0] === capsule) {
+            closest.bodies[0] = capsule.body;
+            closest.bodies[1] = mesh.getRoot();
+          } else if (closest.bodies[1] === capsule) {
+            closest.bodies[0] = mesh.getRoot();
+            closest.bodies[1] = capsule.body;
+          }
+          contacts.push(closest);
+        }
+
+        return contacts;
+      }
+    }();
 
 
     this.closest_point_on_sphere = function(point, center, radius, closest) {
@@ -945,25 +1102,32 @@ elation.require(['physics.common', 'utils.math'], function() {
       var line = new THREE.Vector3(),
           proj = new THREE.Vector3();
 
-      return function(start, end, point) {
+      return function(start, end, point, closest) {
         line.copy(end).sub(start);
         var lengthSq = line.lengthSq();
         if (lengthSq < 1e-6) { // zero-length line
-          return start.clone();
+          if (!closest) closest = new THREE.Vector3();
+          closest.copy(start);
+          return closest;
         }
 
         // Project point on to line
         proj.subVectors(point, start);
         var t = proj.dot(line) / lengthSq;
         if (t < 0) { // beyond the start
-          return start.clone();
+          if (!closest) closest = new THREE.Vector3();
+          closest.copy(start);
+          return closest;
         } else if (t > 1) { // beyond the end
-          return end.clone();
+          if (!closest) closest = new THREE.Vector3();
+          closest.copy(end);
+          return closest;
         }
 
         // Find point perpendicular to line segment
-        proj.copy(start).add(line.multiplyScalar(t));
-        return proj.clone();
+        if (!closest) closest = new THREE.Vector3();
+        closest.copy(start).add(line.multiplyScalar(t));
+        return closest;
       }
     }();
     this.closest_point_on_triangle = (function() {
@@ -1033,6 +1197,82 @@ elation.require(['physics.common', 'utils.math'], function() {
         return closest.copy(ac).multiplyScalar(w).add(ab.multiplyScalar(v)).add(a);
       }
     })();
+    this.closest_point_on_line_to_triangle = (function() {
+      const closestAB = new THREE.Vector3(),
+            closestBC = new THREE.Vector3(),
+            closestCA = new THREE.Vector3();
+
+      return function(start, end, a, b, c, closest) {
+        let distAB = elation.physics.colliders.helperfuncs.distancesquared_between_lines(start, end, a, b),
+            distBC = elation.physics.colliders.helperfuncs.distancesquared_between_lines(start, end, b, c),
+            distCA = elation.physics.colliders.helperfuncs.distancesquared_between_lines(start, end, c, a);
+        // TODO - finish implementing logic
+      }
+    })();
+    this.distancesquared_between_lines = function() {
+      const d1 = new THREE.Vector3(),
+            d2 = new THREE.Vector3(),
+            r = new THREE.Vector3(),
+            closest1 = new THREE.Vector3(),
+            closest2 = new THREE.Vector3(),
+            d = new THREE.Vector3();
+      return function(p1, q1, p2, q2, c1, c2) {
+        if (!c1) c1 = closest1;
+        if (!c2) c2 = closest2;
+
+        d1.subVectors(q1, p1);
+        d2.subVectors(q2, p2);
+        r.subVectors(p1, p2);
+        let a = d1.dot(d1),
+            e = d2.dot(d2),
+            f = d2.dot(r);
+        let s = 0, t = 0;
+        // Check if either or both segments degenerate into points (length is 0)
+        if (a <= 1e-6 && e <= 1e-6) {
+          // both segments degenerates into points
+          c1.copy(p1);
+          c2.copy(p2);
+          d.subVectors(c1, c2);
+          return d.dot(d);
+        }
+        if (a <= 1e-6) {
+          // first segment degenerates into a point
+          t = elation.utils.math.clamp(f / e, 0, 1);
+        } else {
+          let c = d1.dot(r);
+          if (e < 1e-6) {
+            // second segment degenerates into a point
+            s = elation.utils.math.clamp(-c / a, 0, 1);
+          } else {
+            // general non-degenerate case
+            let b = d1.dot(d2);
+            let denom = a * e - b * b;
+            if (denom != 0) {
+              // segments aren't parallel, compute closest point on L1 to L2 and clamp to segment S1
+              s = elation.utils.math.clamp((b * f - c * e) / denom, 0, 1);
+            } else {
+              // segments are parallel, pick arbitrary s=0
+              s = 0;
+            }
+            t = (b * s + f) / e;
+
+            // if t in [0,1] done. Else clamp t, recompute s for new value of t and clamp to [0, 1]
+            if (t < 0) {
+              t = 0;
+              s = elation.utils.math.clamp(-c / a, 0, 1);
+            } else if (t > 1) {
+              t = 1;
+              s = elation.utils.math.clamp((b - c) / a, 0, 1);
+            }
+          }
+        }
+
+        c1.copy(d1).multiplyScalar(s).add(p1);
+        c2.copy(d2).multiplyScalar(t).add(p2);
+        d.subVectors(c1, c2);
+        return d.dot(d);
+      }
+    }();
     this.distance_to_line = function(start, end, point) {
       return this.closest_point_on_line(start, end, point).distanceTo(point);
     }
@@ -1421,6 +1661,12 @@ elation.require(['physics.common', 'utils.math'], function() {
     this.offset = args.offset || new THREE.Vector3();
     this.trigger = elation.utils.any(args.trigger, false);
 
+    this.dimensions = {
+      start: new THREE.Vector3(),
+      end: new THREE.Vector3(),
+      radius: new THREE.Vector3(),
+    };
+
     this.getContacts = function(other, contacts, dt) {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.plane) {
@@ -1429,6 +1675,10 @@ elation.require(['physics.common', 'utils.math'], function() {
         contacts = elation.physics.colliders.helperfuncs.capsule_sphere(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.box) {
         contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.mesh) {
+        contacts = elation.physics.colliders.helperfuncs.mesh_capsule(other, this, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.capsule) {
+        contacts = elation.physics.colliders.helperfuncs.capsule_capsule(this, other, contacts, dt);
   /*
       } else if (other instanceof elation.physics.colliders.cylinder) {
         contacts = elation.physics.colliders.helperfuncs.capsule_cylinder(this, other, contacts);
@@ -1451,6 +1701,13 @@ elation.require(['physics.common', 'utils.math'], function() {
         0, 0, i1, 0, 
         0, 0, 0, 1);
       return this.momentInverse;
+    }
+    this.getDimensions = function() {
+      // TODO - cache these
+      this.body.localToWorldPos(this.dimensions.start.set(0, 0, 0).add(this.offset));
+      this.body.localToWorldPos(this.dimensions.end.set(0, this.length, 0).add(this.offset));
+      this.body.localToWorldDir(this.dimensions.radius.set(0, this.radius, 0));
+      return this.dimensions;
     }
     this.toJSON = function() {
       return {
@@ -1606,6 +1863,8 @@ elation.require(['physics.common', 'utils.math'], function() {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.sphere) {
         contacts = elation.physics.colliders.helperfuncs.mesh_sphere(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.capsule) {
+        contacts = elation.physics.colliders.helperfuncs.mesh_capsule(this, other, contacts);
   /*
       } else if (other instanceof elation.physics.colliders.box) {
         contacts = elation.physics.colliders.helperfuncs.mesh_box(this, other, contacts);
@@ -1698,6 +1957,8 @@ elation.require(['physics.common', 'utils.math'], function() {
       if (!contacts) contacts = [];
       if (other instanceof elation.physics.colliders.sphere) {
         contacts = elation.physics.colliders.helperfuncs.triangle_sphere(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.capsule) {
+        contacts = elation.physics.colliders.helperfuncs.triangle_capsule(this, other, contacts);
   /*
       } else if (other instanceof elation.physics.colliders.box) {
         contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts);
