@@ -658,7 +658,38 @@ elation.require(['physics.common', 'utils.math'], function() {
         return contacts;
       }
     }();
+    this.capsule_capsule = function() {
+      // closure scratch variables
+      const p1 = new THREE.Vector3(),
+            p2 = new THREE.Vector3();
 
+      return function(capsule1, capsule2, contacts, dt) {
+        const capsule1Dims = capsule1.getDimensions(),
+              capsule2Dims = capsule2.getDimensions();
+
+        let distSquared = elation.physics.colliders.helperfuncs.distancesquared_between_lines(capsule1Dims.start, capsule1Dims.end, capsule2Dims.start, capsule2Dims.end, p1, p2);
+
+        if (distSquared <= Math.pow(capsule1.radius + capsule2.radius, 2)) {
+          console.log('CAPSULE COLLIDE', capsule1, capsule2);
+          let normal = new THREE.Vector3().subVectors(p2, p1),
+              point = p1.clone();
+              dist = Math.sqrt(distSquared);
+          normal.divideScalar(dist);
+          point.x += normal.x * capsule1.radius;
+          point.y += normal.y * capsule1.radius;
+          point.z += normal.z * capsule1.radius;
+
+          let contact = new elation.physics.contact({
+            normal: normal,
+            point: point,
+            penetration: dist - (capsule1.radius + capsule2.radius),
+            bodies: [capsule1.body, capsule2.body]
+          });
+          contacts.push(contact);
+          return contacts;
+        }
+      }
+    }();
     this.capsule_box = function() {
       // closure scratch variables
       var boxpos = new THREE.Vector3();
