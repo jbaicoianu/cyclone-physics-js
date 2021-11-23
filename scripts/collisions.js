@@ -20,6 +20,9 @@ elation.require(['physics.common', 'utils.math'], function() {
         obj1.body.localToWorldPos(thispos.set(0,0,0));
         obj2.body.localToWorldPos(otherpos.set(0,0,0));
 
+        let scaledRadius1 = obj1.radius * Math.max(obj1.body.scaleWorld.x, obj1.body.scaleWorld.y, obj1.body.scaleWorld.z),
+            scaledRadius2 = obj2.radius * Math.max(obj2.body.scaleWorld.x, obj2.body.scaleWorld.y, obj2.body.scaleWorld.z);
+
         let dynamic = true; // TODO - this should either be a flag on rigid bodies, or a configurable threshold based on velocity
         if (!dynamic) {
           midline.subVectors(otherpos, thispos),
@@ -42,7 +45,7 @@ elation.require(['physics.common', 'utils.math'], function() {
             //console.log('crash a sphere-sphere', contact);
           }
         } else {
-          let r = obj1.radius + obj2.radius;
+          let r = scaledRadius1 + scaledRadius2;
           // FIXME - probably need to transform velocity into world coordinates as well
           let v = scaledVelocity.copy(obj1.body.velocity).sub(obj2.body.velocity).multiplyScalar(dt);
 
@@ -58,7 +61,7 @@ elation.require(['physics.common', 'utils.math'], function() {
 
             var contact = new elation.physics.contact_dynamic({
               normal: normal,
-              point: normal.clone().multiplyScalar(obj1.radius).add(thispos), // allocate point
+              point: normal.clone().multiplyScalar(scaledRadius1).add(thispos), // allocate point
               penetrationTime: intersection.t,
               bodies: [obj1.body, obj2.body],
             });
