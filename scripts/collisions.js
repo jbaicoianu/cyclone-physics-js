@@ -820,6 +820,7 @@ elation.require(['physics.common', 'utils.math'], function() {
         sphereClosestPointToPlane.z = (normal.z * -sphere.radius) + spherepos.z;
         let sphereOffset = sphere.offset;
         if (sphereOffset) {
+          if (sphereOffset._target) sphereOffset = sphereOffset._target;
           sphereClosestPointToPlane.add(sphereOffset);
         }
 
@@ -1730,6 +1731,8 @@ return;
     this.radius = 0;
     this.trigger = elation.utils.any(args.trigger, false);
 
+    this.boundingSphere = new elation.physics.colliders.sphere(body, {});
+
     this.extractTriangles = function(mesh) {
       let triangles = [];
       let radiusSq = 0;
@@ -1809,6 +1812,7 @@ return;
         }
       }
       this.radius = Math.sqrt(radiusSq);
+      this.boundingSphere.radius = this.radius;
       return triangles;
     }
     this.extractObjects = function(mesh) {
@@ -2023,10 +2027,9 @@ return;
     this.getWorldPoints = function() {
       // check to see if world points are cached, and if the cache is still valid
       // TODO - it really makes more sense for this cache to be on the mesh, and for the mesh to update these cached values as needed
-      let currentScaleWorld = this.body.localToWorldScale(this.cache.scaleWorldTmp.set(1,1,1));
-      if (!(this.cache.orientationWorld.equals(this.body.orientationWorld) && this.cache.scaleWorld.equals(currentScaleWorld))) {
+      if (!(this.cache.orientationWorld.equals(this.body.orientationWorld) && this.cache.scaleWorld.equals(this.body.scaleWorld))) {
         this.cache.orientationWorld.copy(this.body.orientationWorld);
-        this.cache.scaleWorld.copy(currentScaleWorld);
+        this.cache.scaleWorld.copy(this.body.scaleWorld);
         this.body.localToWorldPos(this.cache.points[0].copy(this.p1));
         this.body.localToWorldPos(this.cache.points[1].copy(this.p2));
         this.body.localToWorldPos(this.cache.points[2].copy(this.p3));
