@@ -292,6 +292,28 @@ elation.require(['physics.common', 'utils.math'], function() {
       }
       return contact;
     }
+    this.vertex_capsule = (function() {
+      const closest = new THREE.Vector3();
+      return function(vertex, capsule) {
+        let capsuleDims = capsule.getDimensions();
+        elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, vertex, closest);
+        let distSq = closest.distanceToSquared(vertex);
+        if (distSq <= capsule.radius * capsule.radius) {
+          let dist = Math.sqrt(distSq);
+          let normal = closest.clone().sub(vertex).divideScalar(dist);
+          let point = closest.clone();
+          point.x += normal.x * capsule.radius;
+          point.y += normal.y * capsule.radius;
+          point.z += normal.z * capsule.radius;
+          let contact = new elation.physics.contact({
+            normal: normal,
+            point: point,
+            penetration: dist - capsule.radius,
+          });
+          return contact;
+        }
+      }
+    })();
 
     this.box_box = function() {
       // closure scratch variables
