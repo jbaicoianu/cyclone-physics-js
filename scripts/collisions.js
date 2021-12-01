@@ -783,22 +783,21 @@ elation.require(['physics.common', 'utils.math'], function() {
             endpos = new THREE.Vector3(),
             scaledVelocity = new THREE.Vector3(),
             intersectionPoint = new THREE.Vector3(),
-            triangleClosestPoint = new THREE.Vector3(),
-            normal = new THREE.Vector3();
+            triangleClosestPoint = new THREE.Vector3();
 
       // Reference: http://www.peroxide.dk/papers/collision/collision.pdf
 
       return function(triangle, sphere, contacts, dt) {
         const spherepos = sphere.body.position;
         const spherevel = sphere.body.velocity;
-        triangle.body.localToWorldDir(normal.copy(triangle.normal));
+        const worldpoints = triangle.getWorldPoints();
+        const p1 = worldpoints.p1,
+              p2 = worldpoints.p2,
+              p3 = worldpoints.p3,
+              normal = worldpoints.normal;
 
         if (spherevel.dot(normal) > 0) return; // moving away, can't collide
 
-        const worldpoints = triangle.getWorldPoints();
-        const p1 = worldpoints[0],
-              p2 = worldpoints[1],
-              p3 = worldpoints[2];
 
         // Check if we're already in contact
         elation.physics.colliders.helperfuncs.closest_point_on_triangle(spherepos, p1, p2, p3, triangleClosestPoint);
@@ -871,18 +870,20 @@ elation.require(['physics.common', 'utils.math'], function() {
           const intersectionPoint = endpos.clone().sub(spherepos).multiplyScalar(closestIntersectionDist).add(spherepos); // allocate point
 
           elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, triangleClosestPoint);
-          normal.x = intersectionPoint.x - triangleClosestPoint.x;
-          normal.y = intersectionPoint.y - triangleClosestPoint.y;
-          normal.z = intersectionPoint.z - triangleClosestPoint.z;
+          let collisionNormal = new THREE.Vector3( // allocate normal
+            intersectionPoint.x - triangleClosestPoint.x,
+            intersectionPoint.y - triangleClosestPoint.y,
+            intersectionPoint.z - triangleClosestPoint.z
+          );
           normal.normalize();
 
-          intersectionPoint.x += normal.x * -sphere.radius;
-          intersectionPoint.y += normal.y * -sphere.radius;
-          intersectionPoint.z += normal.z * -sphere.radius;
+          intersectionPoint.x += collisionNormal.x * -sphere.radius;
+          intersectionPoint.y += collisionNormal.y * -sphere.radius;
+          intersectionPoint.z += collisionNormal.z * -sphere.radius;
 
           let contact = new elation.physics.contact_dynamic({
-            normal: normal.clone(), // allocate normal
-            point: intersectionPoint, // point already allocated
+            normal: collisionNormal,
+            point: intersectionPoint,
             penetrationTime: closestIntersectionDist,
             bodies: [triangle.body, sphere.body],
             triangle: triangle
@@ -895,115 +896,49 @@ elation.require(['physics.common', 'utils.math'], function() {
     }();
     this.triangle_capsule = function() {
       // Scratch variables
-      const normal = new THREE.Vector3(),
-            capsuleLine = new THREE.Vector3(),
+      const capsuleLine = new THREE.Vector3(),
             capsuleStart = new THREE.Vector3(),
             capsuleEnd = new THREE.Vector3(),
             closestPoint = new THREE.Vector3(),
             intersectionPoint = new THREE.Vector3(),
-            normalLine = new THREE.Vector3();
+            //normal = new THREE.Vector3(),
+            capsuleNormal = new THREE.Vector3(),
+            sphereCenter = new THREE.Vector3(),
+            localSphere = new elation.physics.rigidbody();
 
       return function(triangle, capsule, contacts, dt) {
-        // TODO - We'll start off with static collisions here, which should work fine for slow-moving capsules
-        //        This turns out to be prety similar to the dynamic triangle-sphere tests above, just with
-        //        different considerations for normals
-        triangle.body.localToWorldDir(normal.copy(triangle.normal));
+        //triangle.body.localToWorldDir(normal.copy(triangle.normal));
+
+        const capsuleDims = capsule.getDimensions();
+        capsuleNormal.subVectors(capsuleDims.end, capsuleDims.start).normalize();
 
         const worldpoints = triangle.getWorldPoints();
-        const p1 = worldpoints[0],
-              p2 = worldpoints[1],
-              p3 = worldpoints[2];
+        const p1 = worldpoints.p1,
+              p2 = worldpoints.p2,
+              p3 = worldpoints.p3,
+              normal = worldpoints.normal;
 
-        // Check if capsule's end-to-end line segment intersects with the triangle
+        // Find the closest point of the capsule to the triangle
+        let t = normal.dot(capsuleLine.subVectors(p1, capsuleDims.start).divideScalar(Math.abs(normal.dot(capsuleNormal))));
+        intersectionPoint.copy(capsuleNormal).multiplyScalar(t).add(capsuleDims.start);
+        elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, closestPoint);
+        elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, closestPoint, localSphere.position);
 
-        const capsuleDimensions = capsule.getDimensions();
-
-        capsuleStart.copy(capsuleDimensions.start).sub(capsuleDimensions.radius);
-        capsuleEnd.copy(capsuleDimensions.end).add(capsuleDimensions.radius);
-        //capsuleEnd.z += .01; // FIXME - stupid hack to avoid parallel edge case :(
-
-/*
-        if (Math.abs(normal.dot(capsuleLine)) < 1e6) {
-          // capsule is parallel to triangle
-          // Find the closest point on the capsule to an arbitrary corner, and do a triangle_sphere test on that
-          elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDimensions.start, capsuleDimensions.end, p1, closestPoint);
-          let dist = closestPoint.sub(p1).dot(normal);
-          if (dist >= -capsule.radius && dist <= capsule.radius) {
-console.log('boink it', triangle);
-            //intersectionPlane = { point: closestPoint, t: 0 };
-          }
+        // Perform a sphere/triangle intersection test with our sphere
+        if (!localSphere.collider) {
+            localSphere.setCollider('sphere', { radius: 1 });
         } else {
+          localSphere.collider.radius = capsule.radius;
         }
-*/
-        let intersectionPlane = elation.physics.colliders.helperfuncs.line_plane(capsuleStart, capsuleEnd, p1, p2, p3, intersectionPoint);
-        if (intersectionPlane && intersectionPlane.t >= 0 && intersectionPlane.t <= 1 && triangle.containsPoint(intersectionPlane.point)) {
-          elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDimensions.start, capsuleDimensions.end, intersectionPoint, closestPoint);
-          normal.subVectors(closestPoint, intersectionPlane.point);
-          let dist = normal.length();
-          normal.divideScalar(dist);
-if (dist <= capsule.radius) {
-          // capsule intersects face of triangle
-          // TODO - normal and penetration distance are wrong here
-          let contact = new elation.physics.contact({
-            normal: normal.clone(), // allocate normal
-            point: intersectionPlane.point.clone(), // allocate point
-            penetration: dist - capsule.radius,
-            bodies: [triangle.body, capsule.body],
-            triangle: triangle
-          });
-          contacts.push(contact);
-          return contacts;
-}
-        }
-return;
-        capsuleLine.copy(capsuleEnd).sub(capsuleStart);
-
-        capsuleStart.copy(capsuleDimensions.start).sub(capsuleDimensions.radius);
-        capsuleEnd.copy(capsuleDimensions.end).add(capsuleDimensions.radius);
-
-        // Find closest point on capsule's end-to-end line segment to each edge
-        let intersections = [
-          elation.physics.colliders.helperfuncs.line_cylinder(capsuleStart, capsuleEnd, p1, p2, capsule.radius),
-          elation.physics.colliders.helperfuncs.line_cylinder(capsuleStart, capsuleEnd, p2, p3, capsule.radius),
-          elation.physics.colliders.helperfuncs.line_cylinder(capsuleStart, capsuleEnd, p3, p1, capsule.radius),
-        ];
-
-//console.log(capsule.body.position, capsuleStart, capsuleEnd);
-        let closestIntersectionDist = Infinity;
-        let closestIntersection = null;
-        for (let i = 0; i < intersections.length; i++) {
-          if (intersections[i] != undefined && intersections[i] < closestIntersectionDist) {
-            closestIntersectionDist = intersections[i];
-            closestIntersection = i;
-          }
-        }
-
-        if (closestIntersection !== null) {
-          const intersectionPoint = capsuleStart.clone().sub(capsuleEnd).multiplyScalar(closestIntersectionDist).add(capsuleStart); // allocate point
-
-          elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, closestPoint);
-          normal.x = intersectionPoint.x - closestPoint.x;
-          normal.y = intersectionPoint.y - closestPoint.y;
-          normal.z = intersectionPoint.z - closestPoint.z;
-          normal.normalize();
-
-          intersectionPoint.x += normal.x * -capsule.radius;
-          intersectionPoint.y += normal.y * -capsule.radius;
-          intersectionPoint.z += normal.z * -capsule.radius;
-
-          let contact = new elation.physics.contact({
-            normal: normal.clone(), // allocate normal
-            point: intersectionPoint, // point already allocated
-            //penetrationTime: closestIntersectionDist,
-            penetration: -capsuleStart.distanceTo(intersectionPoint), // FIXME - not sure this is correct, probably need to account for which end is closest along the normal
-            bodies: [triangle.body, capsule.body],
-            triangle: triangle
-          });
-
+        localSphere.velocity.copy(capsule.body.velocity);
+        let localcontacts = [];
+        elation.physics.colliders.helperfuncs.triangle_sphere(triangle, localSphere.collider, localcontacts, dt);
+        if (localcontacts.length > 0) {
+          let contact = localcontacts[0];
+          contact.bodies[1] = capsule.body;
           contacts.push(contact);
           return contacts;
         }
-
       }
     }();
     this.mesh_sphere = function() {
@@ -1013,8 +948,15 @@ return;
         elation.physics.colliders.helperfuncs.sphere_sphere(sphere, mesh.boundingSphere, spherecontacts, dt);
         if (spherecontacts.length == 0) return;
 
+        let spherepos = sphere.body.positionWorld,
+            sphereMaxDist = sphere.radius * sphere.radius + sphere.body.velocity.lengthSq();
         for (var i = 0; i < mesh.triangles.length; i++) {
-          elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], sphere, localcontacts, dt);
+          let triangle = mesh.triangles[i],
+              worldpoints = triangle.getWorldPoints(),
+              distToCenter = worldpoints.center.distanceToSquared(spherepos);
+          if (distToCenter <= sphereMaxDist + worldpoints.radius * worldpoints.radius) {
+            elation.physics.colliders.helperfuncs.triangle_sphere(mesh.triangles[i], sphere, localcontacts, dt);
+          }
         }
 
         if (localcontacts.length > 0) {
@@ -1056,8 +998,15 @@ return;
         if (spherecontacts.length == 0) return;
 
 
+        let capsulepos = capsule.body.positionWorld,
+            capsuleMaxDist = Math.pow(capsule.length + capsule.radius, 2);
         for (var i = 0; i < mesh.triangles.length; i++) {
-          elation.physics.colliders.helperfuncs.triangle_capsule(mesh.triangles[i], capsule, localcontacts, dt);
+          let triangle = mesh.triangles[i],
+              worldpoints = triangle.getWorldPoints(),
+              distToCenter = worldpoints.center.distanceToSquared(capsulepos);
+          if (distToCenter <= capsuleMaxDist + worldpoints.radius * worldpoints.radius) {
+            elation.physics.colliders.helperfuncs.triangle_capsule(triangle, capsule, localcontacts, dt);
+          }
         }
 
         if (localcontacts.length > 0) {
@@ -1427,7 +1376,7 @@ return;
    * =========
    */
  
-  elation.extend("physics.colliders.sphere", function(body, args) {
+  elation.extend("physics.colliders.sphere", function(body, args={}) {
     this.type = 'sphere';
     this.body = body;
     this.radius = args.radius || args;
@@ -1926,11 +1875,14 @@ return;
       orientationWorld: new THREE.Quaternion(),
       scaleWorld: new THREE.Vector3(),
       scaleWorldTmp: new THREE.Vector3(),
-      points: [
-        new THREE.Vector3(),
-        new THREE.Vector3(),
-        new THREE.Vector3(),
-      ],
+      points: {
+        p1: new THREE.Vector3(),
+        p2: new THREE.Vector3(),
+        p3: new THREE.Vector3(),
+        normal: new THREE.Vector3(),
+        center: new THREE.Vector3(),
+        radius: 0
+      },
     };
 
     this.v0 = new THREE.Vector3();
@@ -1995,9 +1947,10 @@ return;
             b = new THREE.Vector3(),
             c = new THREE.Vector3();
       return function(point) {
-        this.body.localToWorldPos(a.copy(this.p1)).sub(point);
-        this.body.localToWorldPos(b.copy(this.p2)).sub(point);
-        this.body.localToWorldPos(c.copy(this.p3)).sub(point);
+        let worldpoints = this.getWorldPoints();
+        a.copy(worldpoints.p1).sub(point);
+        b.copy(worldpoints.p2).sub(point);
+        c.copy(worldpoints.p3).sub(point);
 
         let ab = a.dot(b),
             ac = a.dot(c),
@@ -2017,6 +1970,7 @@ return;
       let triangleClosestPoint = new THREE.Vector3();
       return function(point) {
         //return this.normal.dot(point) + this.offset;
+        // TODO - should use cached world points
         elation.physics.colliders.helperfuncs.closest_point_on_triangle(point, this.p1, this.p2, this.p3, triangleClosestPoint);
         return triangleClosestPoint.distanceTo(point);
       }
@@ -2030,11 +1984,48 @@ return;
       if (!(this.cache.orientationWorld.equals(this.body.orientationWorld) && this.cache.scaleWorld.equals(this.body.scaleWorld))) {
         this.cache.orientationWorld.copy(this.body.orientationWorld);
         this.cache.scaleWorld.copy(this.body.scaleWorld);
-        this.body.localToWorldPos(this.cache.points[0].copy(this.p1));
-        this.body.localToWorldPos(this.cache.points[1].copy(this.p2));
-        this.body.localToWorldPos(this.cache.points[2].copy(this.p3));
+        this.body.localToWorldPos(this.cache.points.p1.copy(this.p1));
+        this.body.localToWorldPos(this.cache.points.p2.copy(this.p2));
+        this.body.localToWorldPos(this.cache.points.p3.copy(this.p3));
+        this.body.localToWorldDir(this.cache.points.normal.copy(this.normal));
+
+        let circumsphere = this.getCircumcenter(this.cache.points, this.cache.points.center);
+        this.cache.points.radius = circumsphere.radius;
       }
       return this.cache.points;
+    }
+    this.getArea = function() {
+      let worldpoints = this.getWorldPoints()
+          p1 = worldpoints.p1,
+          p2 = worldpoints.p2,
+          p3 = worldpoints.p3;
+
+      return .5 * Math.abs(p1.x * (p2.y - p3.y) + p2.x * (p3.x - p1.y) + p3.x * (p1.y - p2.y));
+    }
+    this.getCircumcenter = function(points, center) {
+      const ab = new THREE.Vector3(),
+            ac = new THREE.Vector3(),
+            abXac = new THREE.Vector3(),
+            t1 = new THREE.Vector3(),
+            t2 = new THREE.Vector3();
+      if (!points) points = this.getWorldPoints();
+      if (!center) center = new THREE.Vector3();
+
+      const p1 = points.p1,
+            p2 = points.p2,
+            p3 = points.p3;
+
+      ab.subVectors(p2, p1);
+      ac.subVectors(p3, p1);
+      abXac.crossVectors(ab, ac);
+
+      t1.crossVectors(abXac, ab).multiplyScalar(ac.lengthSq());
+      t2.crossVectors(ac, abXac).multiplyScalar(ab.lengthSq());
+      center.addVectors(t1, t2).divideScalar(abXac.lengthSq() * 2);
+      let radius = center.length();
+      center.add(p1);
+
+      return {center, radius};
     }
     this.toJSON = function() {
       return {
