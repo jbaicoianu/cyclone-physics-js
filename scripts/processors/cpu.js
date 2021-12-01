@@ -3,58 +3,48 @@ elation.require(['physics.processors'], function() {
     elation.physics.processor.base.call(this, parent);
     this.iterateVelocities = function(objects, t) {
       if (t == 0) return; // paused, do nothing
-      var framedata = {};
       for (var i = 0; i < objects.length; i++) {
-        objects[i].updateAcceleration(framedata);
-        var scaledtime = objects[i].getTimescale() * t;
+        objects[i].updateAcceleration();
+        let scaledtime = objects[i].getTimescale() * t;
         if (objects[i].state.accelerating || objects[i].state.moving) {
-          this.iterateAxisVel(objects[i], 'x', scaledtime);
-          this.iterateAxisVel(objects[i], 'y', scaledtime);
-          this.iterateAxisVel(objects[i], 'z', scaledtime);
+          let obj = objects[i],
+              vel = obj.velocity,
+              accel = obj.acceleration,
+              damping = Math.pow(obj.linearDamping, t);
+
+          vel.x = (vel.x + accel.x * t) * damping;
+          vel.y = (vel.y + accel.y * t) * damping;
+          vel.z = (vel.z + accel.z * t) * damping;
         }
         if (objects[i].state.rotating) {
           this.iterateRotation(objects[i], scaledtime);
         }
-        objects[i].updateState(framedata);
       }
     }
     this.iteratePositions = function(objects, t) {
       if (t == 0) return; // paused, do nothing
-      var framedata = {};
       for (var i = 0; i < objects.length; i++) {
         var scaledtime = objects[i].getTimescale() * t;
         if (objects[i].state.accelerating || objects[i].state.moving) {
-          this.iterateAxisPos(objects[i], 'x', scaledtime);
-          this.iterateAxisPos(objects[i], 'y', scaledtime);
-          this.iterateAxisPos(objects[i], 'z', scaledtime);
+          let obj = objects[i],
+              pos = obj.position,
+              vel = obj.velocity;
+
+          pos.x += vel.x * t;
+          pos.y += vel.y * t;
+          pos.z += vel.z * t;
         }
         if (objects[i].state.rotating) {
           //this.iterateRotation(objects[i], scaledtime);
         }
-        objects[i].updateState(framedata);
+        objects[i].updateState();
         if (!objects[i].state.sleeping) {
           elation.events.fire({type: "physics_update", element: objects[i], data: t});
         }
       }
     }
-    this.iterateAxisVel = function(obj, axis, t) {
-      var pos = obj.position[axis],
-          vel = obj.velocity[axis],
-          accel = obj.acceleration[axis];
-
-      vel += accel * t;
-      obj.velocity[axis] = vel * Math.pow(obj.linearDamping, t);
-    }
-    this.iterateAxisPos = function(obj, axis, t) {
-      var pos = obj.position[axis],
-          vel = obj.velocity[axis],
-          accel = obj.acceleration[axis];
-
-      pos += vel * t;
-
-      obj.position[axis] = pos;
-    }
     this.iterateRotation = function(obj, t) {
+      // TODO - should probably be split out like we did velocity / position above
       this._tmpvec.copy(obj.angularacceleration).multiplyScalar(t);
       obj.angular.add(this._tmpvec).multiplyScalar(Math.pow(obj.angularDamping, t));
 
