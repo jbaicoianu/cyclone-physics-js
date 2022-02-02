@@ -796,7 +796,7 @@ elation.require(['physics.common', 'utils.math'], function() {
               p3 = worldpoints.p3,
               normal = worldpoints.normal;
 
-        if (spherevel.dot(normal) > 0) return; // moving away, can't collide
+        //if (spherevel.dot(normal) > 0) return; // moving away, can't collide
 
 
         // Check if we're already in contact
