@@ -84,7 +84,7 @@ elation.require(['physics.common'], function() {
       if (this.forces.length > 0) {
         this.clearAccumulators();
         for (var k in this.forces) {
-          this.forces[k].apply(framedata);
+          this.forces[k].apply(framedata); // FIXME - electrostatic force is the only one which uses this, as a way to cache results across objects each frame. Should evaluate alternate ways of doing that
         }
         this.acceleration.copy(this.force_accumulator.divideScalar(this.mass));
         if (this.collider && this.collider.momentInverse) {

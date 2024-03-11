@@ -102,6 +102,8 @@ elation.require(["physics.common"], function() {
       while (contacts.length > 0) {
         let contact = contacts.shift();
         contact.resolve(t, linearChange, angularChange, contacts);
+        // console.log('blah', contacts.length, linearChange[1].toArray().map(x => +x.toFixed(4)), contact.bodies)
+        break;
       }
     }
   });

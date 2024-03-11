@@ -930,6 +930,7 @@ elation.require(['physics.common', 'utils.math'], function() {
         } else {
           localSphere.collider.radius = capsule.radius;
         }
+        localSphere.orientation.copy(capsule.body.orientation);
         localSphere.velocity.copy(capsule.body.velocity);
         let localcontacts = [];
         elation.physics.colliders.helperfuncs.triangle_sphere(triangle, localSphere.collider, localcontacts, dt);

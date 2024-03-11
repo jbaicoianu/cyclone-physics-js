@@ -55,10 +55,10 @@ elation.require(['physics.common'], function() {
       var angle = Math.acos(ortho.dot(flat)) * sign;
       //console.log(angle, sign, this.axis.toArray(), ortho.toArray(), cross.toArray());
       if (this.min && this.max) {
-        angle = THREE.Math.clamp(angle, this.min, this.max);
+        angle = THREE.MathUtils.clamp(angle, this.min, this.max);
       }
       if (angle == 0.0) angle = 0.0001;
-      //angle = THREE.Math.clamp(angle, min, max);
+      //angle = THREE.MathUtils.clamp(angle, min, max);
       //console.log(angle, sign, this.min, this.max);
       
       neworient.setFromAxisAngle(this.axis, angle);

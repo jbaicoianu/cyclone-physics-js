@@ -353,12 +353,12 @@ elation.require(["physics.processors"], function() {
       } else {
         // TODO - this is just me brainstorming what a more flexible API would look like. It still needs to be implemented.
         this.setPipeline([
-          new PhysicsSolverNBodyGravityForce(),
-          new PhysicsSolverSpringForce(),
-          new PhysicsSolverBuoyancyForce(),
-          new PhysicsSolverElectrostaticForce(),
-          new PhysicsSolverCollisions(),
-          new PhysicsSolverPosVel(),
+          new elation.physics.solvers.nbodygravity(),
+          new elation.physics.solvers.spring(),
+          new elation.physics.solvers.buoyancy(),
+          new elation.physics.solvers.electrostatic(),
+          new elation.physics.solvers.collisions(),
+          new elation.physics.solvers.projectile(),
         ]);
       }
 
