@@ -701,8 +701,8 @@ elation.require(['physics.common', 'utils.math'], function() {
 
       return function(capsule, box, contacts, dt) {
 
-        start.set(0,-capsule.length/2,0);
-        end.set(0,capsule.length/2,0);
+        start.set(0,0,0);
+        end.set(0,capsule.length,0);
         if (capsule.offset) {
           start.add(capsule.offset);
           end.add(capsule.offset);
@@ -751,15 +751,15 @@ elation.require(['physics.common', 'utils.math'], function() {
 
       return function(capsule, cylinder, contacts, dt) {
 
-        capsule.body.localToWorldPos(start.set(0,-capsule.length/2,0));
-        capsule.body.localToWorldPos(end.set(0,capsule.length/2,0));
+        capsule.body.localToWorldPos(start.set(0,0,0));
+        capsule.body.localToWorldPos(end.set(0,capsule.length,0));
         //box.body.localToWorldPos(point.set(0,0,0));
 
         var sphere = new elation.physics.colliders.sphere(capsule.body, {radius: capsule.radius});
-        sphere.offset = new THREE.Vector3(0,-capsule.length/2,0);
+        sphere.offset = new THREE.Vector3(0,0,0);
         if (capsule.offset) sphere.offset.add(capsule.offset);
         var head = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
-        sphere.offset = new THREE.Vector3(0,capsule.length/2,0);
+        sphere.offset = new THREE.Vector3(0,capsule.length,0);
         if (capsule.offset) sphere.offset.add(capsule.offset);
         var tail = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
         if (head && tail) {
