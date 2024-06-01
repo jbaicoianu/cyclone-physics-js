@@ -20,9 +20,6 @@ elation.require(['physics.common', 'utils.math'], function() {
         obj1.body.localToWorldPos(thispos.set(0,0,0));
         obj2.body.localToWorldPos(otherpos.set(0,0,0));
 
-        let scaledRadius1 = obj1.radius * Math.max(obj1.body.scaleWorld.x, obj1.body.scaleWorld.y, obj1.body.scaleWorld.z),
-            scaledRadius2 = obj2.radius * Math.max(obj2.body.scaleWorld.x, obj2.body.scaleWorld.y, obj2.body.scaleWorld.z);
-
         let dynamic = true; // TODO - this should either be a flag on rigid bodies, or a configurable threshold based on velocity
         if (!dynamic) {
           midline.subVectors(otherpos, thispos),
@@ -45,7 +42,7 @@ elation.require(['physics.common', 'utils.math'], function() {
             //console.log('crash a sphere-sphere', contact);
           }
         } else {
-          let r = scaledRadius1 + scaledRadius2;
+          let r = obj1.radius + obj2.radius;
           // FIXME - probably need to transform velocity into world coordinates as well
           let v = scaledVelocity.copy(obj1.body.velocity).sub(obj2.body.velocity).multiplyScalar(dt);
 
@@ -61,7 +58,7 @@ elation.require(['physics.common', 'utils.math'], function() {
 
             var contact = new elation.physics.contact_dynamic({
               normal: normal,
-              point: normal.clone().multiplyScalar(scaledRadius1).add(thispos), // allocate point
+              point: normal.clone().multiplyScalar(obj1.radius).add(thispos), // allocate point
               penetrationTime: intersection.t,
               bodies: [obj1.body, obj2.body],
             });
@@ -637,20 +634,23 @@ elation.require(['physics.common', 'utils.math'], function() {
             closest = new THREE.Vector3();
 
       return function(capsule, sphere, contacts, dt) {
-        const radius = capsule.radius + sphere.radius;
-        const capsuleDims = capsule.getDimensions();
+        const capsuleScaledRadius = capsule.radius * Math.max(capsule.body.scale.x, capsule.body.scale.z),
+              combinedRadius = capsuleScaledRadius + sphere.radius,
+              capsuleDims = capsule.getDimensions();
         sphere.body.localToWorldPos(point.set(0,0,0));
 
+
         elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, point, closest);
+
         normal.subVectors(closest, point);
         const distance = normal.length();
-  //console.log(distance, radius, capsule.radius, sphere.radius);
-        if (distance <= radius) {
+
+        if (distance <= combinedRadius) {
           normal.divideScalar(distance);
           let contact = new elation.physics.contact({
             normal: normal.clone(), // allocate normal
-            point: closest.clone().add(normal.multiplyScalar(capsule.radius)), // allocate point
-            penetration: radius - distance,
+            point: closest.clone().add(normal.multiplyScalar(capsuleScaledRadius)), // allocate point
+            penetration: combinedRadius - distance,
             bodies: [capsule.body, sphere.body]
           });
           contacts.push(contact);
@@ -669,20 +669,23 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         let distSquared = elation.physics.colliders.helperfuncs.distancesquared_between_lines(capsule1Dims.start, capsule1Dims.end, capsule2Dims.start, capsule2Dims.end, p1, p2);
 
-        if (distSquared <= Math.pow(capsule1.radius + capsule2.radius, 2)) {
+        const capsule1ScaledRadius = capsule1.radius * Math.max(capsule1.body.scale.x, capsule1.body.scale.z),
+              capsule2ScaledRadius = capsule2.radius * Math.max(capsule2.body.scale.x, capsule2.body.scale.z);
+
+        if (distSquared <= Math.pow(capsule1ScaledRadius + capsule2ScaledRadius, 2)) {
           console.log('CAPSULE COLLIDE', capsule1, capsule2);
           let normal = new THREE.Vector3().subVectors(p2, p1),
               point = p1.clone();
               dist = Math.sqrt(distSquared);
           normal.divideScalar(dist);
-          point.x += normal.x * capsule1.radius;
-          point.y += normal.y * capsule1.radius;
-          point.z += normal.z * capsule1.radius;
+          point.x += normal.x * capsule1ScaledRadius;
+          point.y += normal.y * capsule1ScaledRadius;
+          point.z += normal.z * capsule1ScaledRadius;
 
           let contact = new elation.physics.contact({
             normal: normal,
             point: point,
-            penetration: dist - (capsule1.radius + capsule2.radius),
+            penetration: dist - (capsule1ScaledRadius + capsule2ScaledRadius),
             bodies: [capsule1.body, capsule2.body]
           });
           contacts.push(contact);
