@@ -86,7 +86,7 @@ elation.require(['physics.common'], function() {
         for (var k in this.forces) {
           this.forces[k].apply(framedata); // FIXME - electrostatic force is the only one which uses this, as a way to cache results across objects each frame. Should evaluate alternate ways of doing that
         }
-        this.acceleration.copy(this.force_accumulator.divideScalar(this.mass));
+        this.acceleration.copy(this.force_accumulator).divideScalar(this.mass);
         if (this.collider && this.collider.momentInverse) {
           this.angularacceleration.copy(this.torque_accumulator.applyMatrix4(this.collider.momentInverse));
         }
