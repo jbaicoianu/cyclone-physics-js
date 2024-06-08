@@ -39,7 +39,7 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
         steps = Math.min(Math.round(t / this.substepMaxDelta), this.substepMaxSteps);
       }
       
-      var step = 0;
+      var step = 1;
       while (t > 0) {
         var steptime = (step < steps ? Math.min(t, this.substepMaxDelta) : t);
 
@@ -47,18 +47,15 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
         var objects = this.processor.update(this.children, steptime);
         if (objects.length > 0) {
 
-          // step 2: update velocities for all active objects
-          this.processor.iterateVelocities(objects, steptime);
-
-          // step 3: detect contacts
+          // step 2: detect contacts
           var collisions = this.processor.collide(steptime);
 
-          // step 4: resolve collisions
+          // step 3: resolve collisions
           if (collisions && collisions.length > 0) {
             this.processor.resolve(steptime, collisions);
           }
 
-          // step 5: update positions for all active objects
+          // step 4: update positions for all active objects
           this.processor.iteratePositions(objects, steptime);
         }
         t -= steptime;

@@ -1,41 +1,29 @@
 elation.require(['physics.processors'], function() {
   elation.extend("physics.processor.cpu", function(parent) {
     elation.physics.processor.base.call(this, parent);
-    this.iterateVelocities = function(objects, t) {
-      if (t == 0) return; // paused, do nothing
-      for (var i = 0; i < objects.length; i++) {
-        objects[i].updateAcceleration();
-        let scaledtime = objects[i].getTimescale() * t;
-        if (objects[i].state.accelerating || objects[i].state.moving) {
-          let obj = objects[i],
-              vel = obj.velocity,
-              accel = obj.acceleration,
-              damping = Math.pow(obj.linearDamping, t);
-
-          vel.x = (vel.x + accel.x * t) * damping;
-          vel.y = (vel.y + accel.y * t) * damping;
-          vel.z = (vel.z + accel.z * t) * damping;
-        }
-        if (objects[i].state.rotating) {
-          this.iterateRotation(objects[i], scaledtime);
-        }
-      }
-    }
     this.iteratePositions = function(objects, t) {
       if (t == 0) return; // paused, do nothing
       for (var i = 0; i < objects.length; i++) {
+        objects[i].updateAcceleration();
         var scaledtime = objects[i].getTimescale() * t;
         if (objects[i].state.accelerating || objects[i].state.moving) {
           let obj = objects[i],
               pos = obj.position,
-              vel = obj.velocity;
+              vel = obj.velocity,
+              accel = obj.acceleration,
+              damping = Math.pow(obj.linearDamping, t);
 
-          pos.x += vel.x * t;
-          pos.y += vel.y * t;
-          pos.z += vel.z * t;
+          pos.x += (t * vel.x) + 1/2 * accel.x * Math.pow(t, 2);
+          pos.y += (t * vel.y) + 1/2 * accel.y * Math.pow(t, 2);
+          pos.z += (t * vel.z) + 1/2 * accel.z * Math.pow(t, 2);
+
+          vel.x = (vel.x + accel.x * t) * damping;
+          vel.y = (vel.y + accel.y * t) * damping;
+          vel.z = (vel.z + accel.z * t) * damping;
+
         }
         if (objects[i].state.rotating) {
-          //this.iterateRotation(objects[i], scaledtime);
+          this.iterateRotation(objects[i], scaledtime);
         }
         objects[i].updateState();
         if (!objects[i].state.sleeping) {

@@ -373,7 +373,7 @@ console.log('GO START IT');
       }
     }
 
-    this.iterateVelocities = function(objects, t) {
+    this.iteratePositions = function(objects, t) {
       if (this.gpuBuffers) {
         if (this.readingBack) {
           // FIXME - hack, we're skipping frames if the readback is still occurring, we should just await the readback but that'll require additional work higher up in the library
