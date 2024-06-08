@@ -49,7 +49,7 @@ elation.require(['physics.common'], function() {
       this.updateState();
     }
     this.updateState = function() {
-      var lambda = 1e-20;
+      var epsilon = 1e-20;
       this.processConstraints();
 
       if (this.parent) {
@@ -65,9 +65,9 @@ elation.require(['physics.common'], function() {
       for (var i = 0, l = this.forces.length; i < l; i++) {
         this.state.forces = this.state.forces || (typeof this.forces[i].sleepstate == 'function' ? !this.forces[i].sleepstate() : true);
       }
-      this.state.accelerating = (this.acceleration && this.acceleration.lengthSq() > lambda);
-      this.state.moving = (this.velocity && this.velocity.lengthSq() > lambda);
-      this.state.rotating = ((this.angular && this.angular.lengthSq() > lambda) || (this.angularacceleration && this.angularacceleration.lengthSq() > lambda));
+      this.state.accelerating = (this.acceleration && this.acceleration.lengthSq() > epsilon);
+      this.state.moving = (this.velocity && this.velocity.lengthSq() > epsilon);
+      this.state.rotating = ((this.angular && this.angular.lengthSq() > epsilon) || (this.angularacceleration && this.angularacceleration.lengthSq() > epsilon));
 
       this.state.changed = this.hasChanged();
 
