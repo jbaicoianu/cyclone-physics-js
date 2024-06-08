@@ -1,7 +1,7 @@
-import { elation } from '../../../cyclone.mjs'
+import { elation } from '../../../cyclone.js'
 import * as assert from 'assert'
 
-import { roundToDigits } from '../test-utils.mjs';
+import { roundToDigits } from '../test-utils.js';
 
 describe('sphere-sphere collisions', function() {
   var system = new elation.physics.system();

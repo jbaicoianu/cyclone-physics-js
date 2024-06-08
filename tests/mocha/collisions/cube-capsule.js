@@ -1,4 +1,4 @@
-import { elation } from '../../../cyclone.mjs'
+import { elation } from '../../../cyclone.js'
 import * as assert from 'assert'
 
 describe('cube-capsule collisions', function() {
