@@ -1,11 +1,13 @@
-import { elation } from '../../../cyclone.js'
+import cyclone from '../../../cyclone.js'
+
 import { roundToDigits } from '../test-utils.js';
 import * as assert from 'assert'
 
 describe('static forces', function() {
-  const system = new elation.physics.system({substep: false});
+  const system = new cyclone.system({substep: false});
 
   let tests = [
+    {mass: 1, force: 1, framerate: 60, seconds: .1},
     {mass: 1, force: 1, framerate: 60, seconds: 10},
     {mass: 1000, force: 1, framerate: 60, seconds: 10},
     {mass: .1, force: 1000, framerate: 10, seconds: 100},
@@ -15,8 +17,8 @@ describe('static forces', function() {
     
   tests.forEach(test => {
     it(`applies ${test.force}N static force to ${test.mass}kg object for ${test.seconds}s (${test.framerate}fps)`, function(done) {
-      var body = new elation.physics.rigidbody({mass: test.mass, position: new THREE.Vector3(0,0,0), velocity: new THREE.Vector3(0,0,0)});
-      body.addForce('static', new THREE.Vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize().multiplyScalar(test.force));
+      var body = new cyclone.rigidbody({mass: test.mass, position: new cyclone.vector3(0,0,0), velocity: new cyclone.vector3(0,0,0)});
+      body.addForce('static', new cyclone.vector3(Math.random() - .5, Math.random() - .5, Math.random() - .5).normalize().multiplyScalar(test.force));
 
       system.add(body);
 

@@ -1,4 +1,4 @@
-import { elation } from '../../../cyclone.js'
+import cyclone from '../../../cyclone.js'
 import * as assert from 'assert'
 
 describe('friction forces', function() {

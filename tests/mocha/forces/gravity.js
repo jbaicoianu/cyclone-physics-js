@@ -1,16 +1,18 @@
-import { elation } from '../../../cyclone.js'
+import cyclone from '../../../cyclone.js'
+
+import { roundToDigits } from '../test-utils.js';
 import * as assert from 'assert'
 
 describe('gravity forces', function() {
   let dropTests = [
-    { position: new THREE.Vector3(0, 0, 0), gravity: -9.8, velocity: new THREE.Vector3(0, 100, 0), mass: 1, framerate: 60},
+    { position: new cyclone.vector3(0, 0, 0), gravity: -9.8, velocity: new cyclone.vector3(0, 100, 0), mass: 1, framerate: 60},
   ];
-  const system = new elation.physics.system({substep: false});
+  const system = new cyclone.system({substep: false});
   it('should apply gravity forces reliably');
   dropTests.forEach(test => {
     it(`object with initial velocity of (${test.velocity.toArray().join(',')}) released from (${test.position.toArray().join(',')}) with gravity of ${test.gravity}m/s^2`, done => {
-      let body = new elation.physics.rigidbody({mass: test.mass, position: test.position, velocity: test.velocity});
-      body.addForce('gravity', new THREE.Vector3(0, test.gravity, 0));
+      let body = new cyclone.rigidbody({mass: test.mass, position: test.position, velocity: test.velocity});
+      body.addForce('gravity', new cyclone.vector3(0, test.gravity, 0));
 
       system.add(body);
 
