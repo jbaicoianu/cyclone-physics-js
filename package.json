@@ -2,7 +2,7 @@
   "name": "cyclone-physics",
   "description": "Pure Javascript physics engine originally based on https://github.com/idmillington/cyclone-physics",
   "version": "2.0.0",
-  "main": "",
+  "main": "cyclone.js",
   "author": "James Baicoianu",
   "license": "MIT",
   "scripts": {},
