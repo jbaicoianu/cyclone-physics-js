@@ -6,35 +6,37 @@ Usage:
 
 
 ```javascript
-// initial setup
-elation.physics.system.start();
+import cyclone from './cyclone.js'
 
-var smallball = new elation.physics.rigidbody({ 
-  mass: 1, 
-  position: new THREE.Vector3(0, 0, 1),
-  velocity: new THREE.Vector3(0, 0, -1) 
-});
-smallball.setCollider("sphere", 2);
-elation.events.add(smallball, "collide", function() { console.log('small boing!'); });
-elation.physics.system.add(smallball);
+const system = new cyclone.system(),
+      framerate = 10,
+      seconds = 10
 
-var bigball = new elation.physics.rigidbody({
-  mass: 10, 
-  position: new THREE.Vector3(1, 0, 0),
-  velocity: new THREE.Vector3(-1, 0, 0) 
-});
-bigball.setCollider("sphere", 5);
-elation.events.add(bigball, "collide", function() { console.log('big boing!'); });
-elation.physics.system.add(bigball);
+var smallball = new cyclone.rigidbody({
+  mass: 1,
+  position: new cyclone.vector3(0, 0, 1),
+  velocity: new cyclone.vector3(0, 0, -1)
+})
+smallball.setCollider("sphere", 2)
+//elation.events.add(smallball, "collide", function() { console.log('small boing!') })
+system.add(smallball)
 
-// render loop
-var lasttime = Date.now();
-requestAnimationFrame(stepfunc);
+var bigball = new cyclone.rigidbody({
+  mass: 10,
+  position: new cyclone.vector3(1, 0, 0),
+  velocity: new cyclone.vector3(-1, 0, 0)
+})
+bigball.setCollider("sphere", 5)
 
-function stepfunc(t) {
-  elation.physics.system.iterate(t - lasttime);
-  renderer.render();
-  lasttime = t;
-  requestAnimationFrame(stepfunc);
-});
+//elation.events.add(bigball, "collide", function() { console.log('big boing!') })
+system.add(bigball)
+
+for (let i = 0; i < framerate * seconds; i++) {
+  let dt = i * 1 / framerate
+  system.step(dt)
+
+  console.log(`===== Frame ${i} (${dt} seconds) =====`)
+  console.log(`small ball position: (${smallball.position.toArray().join(',')})`)
+  console.log(`big ball position: (${bigball.position.toArray().join(',')})`)
+}
 ```
