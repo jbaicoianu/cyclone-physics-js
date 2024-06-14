@@ -1,9 +1,10 @@
 import { PhysicsProcessor } from '../processors.js'
 
+/**
+ * CPUPhysicsProcessor - processes all physics on the CPU
+ * @extends PhysicsProcessor
+ */
 export class CPUPhysicsProcessor extends PhysicsProcessor {
-  constructor(parent) {
-    super(parent)
-  }
   iteratePositions(objects, t) {
     if (t == 0) return; // paused, do nothing
     for (var i = 0; i < objects.length; i++) {
