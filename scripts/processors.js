@@ -1,5 +1,8 @@
 import { Vector3, Quaternion } from 'three';
 
+/**
+ * Base PhysicsProcessor class
+ */
 export class PhysicsProcessor {
   constructor(parent) {
     this.parent = parent;

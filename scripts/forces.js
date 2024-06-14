@@ -4,6 +4,10 @@ import * as elation from 'elation';
 
 /**
  * forces
+ * @module Forces
+ */
+/**
+ * Gravity force generator
  */
 class GravityForce extends EventTarget {
   constructor(body, args) {
@@ -87,6 +91,10 @@ class GravityForce extends EventTarget {
     };
   }
 }
+
+/**
+ * Static force generator
+ */
 class StaticForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -151,6 +159,10 @@ class StaticForce extends EventTarget {
     };
   }
 }
+
+/**
+ * Friction force generator
+ */
 class FrictionForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -196,6 +208,10 @@ class FrictionForce extends EventTarget {
     };
   }
 }
+
+/**
+ * Anisotropic friction force generator
+ */
 class AnisotropicFrictionForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -231,6 +247,10 @@ class AnisotropicFrictionForce extends EventTarget {
     };
   }
 }
+
+/**
+ * Drag force generator
+ */
 class DragForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -262,7 +282,10 @@ class DragForce extends EventTarget {
     };
   }
 }
-  /*
+
+/**
+ * Aerodynamic force generator
+ */
 class AeroForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -317,6 +340,9 @@ class AeroForce extends EventTarget {
   }
 }
 
+/**
+ * Aerodynamic controller force generator
+ */
 class AeroControlForce extends AeroControl {
   constructor(body, args) {
     super(body, args);
@@ -364,8 +390,10 @@ class AeroControlForce extends AeroControl {
     };
   }
 }
-*/
 
+/**
+ * Buoyancy force generator
+ */
 class BuoyancyForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -422,6 +450,9 @@ class BuoyancyForce extends EventTarget {
   }
 }
 
+/**
+ * Spring force generator
+ */
 class SpringForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -495,6 +526,10 @@ class SpringForce extends EventTarget {
     };
   }
 }
+
+/**
+ * Magnet force generator
+ */
 class MagnetForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -539,6 +574,10 @@ class MagnetForce extends EventTarget {
     };
   }
 }
+
+/**
+ * Repel force generator
+ */
 class RepelForce extends EventTarget {
   constructor(body, args) {
     super();
@@ -580,6 +619,9 @@ class RepelForce extends EventTarget {
   }
 }
 
+/**
+ * Electrostatic force generator
+ */
 class ElectrostaticForce extends EventTarget {
   constructor(body, args) {
     super();

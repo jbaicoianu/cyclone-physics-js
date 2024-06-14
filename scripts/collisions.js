@@ -3,10 +3,20 @@ import { StaticContact, DynamicContact } from './contacts.js'
 import * as elation from 'elation';
 
 /**
- * colliders 
+ * @module Colliders
  */
 
-class helperfuncs {
+/**
+ * Collection of collision and intersection tests
+ */
+class ColliderFuncs {
+  /**
+   * Sphere vs Sphere dynamic collision test
+   * @param {SphereCollider} obj1
+   * @param {SphereCollider} obj2
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static sphere_sphere = (function() {
     // closure scratch variables
     var thispos = new Vector3(),
@@ -50,7 +60,7 @@ class helperfuncs {
 
         let endpos = midline.copy(thispos).add(v);
 
-        let intersection = helperfuncs.line_sphere(thispos, endpos, otherpos, r, intersectionPoint);
+        let intersection = ColliderFuncs.line_sphere(thispos, endpos, otherpos, r, intersectionPoint);
         if (intersection && intersection.t <= r) {
           let t = intersection.t;
           thispos.add(scaledVelocity.copy(obj1.body.velocity).multiplyScalar(t * dt));
@@ -72,6 +82,13 @@ class helperfuncs {
     }
   })();
 
+  /**
+   * Sphere vs Plane static collision test
+   * @param {SphereCollider} obj1
+   * @param {PlaneCollider} obj2
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static sphere_plane = function() {
     // closure scratch variables
     var pos = new Vector3();
@@ -100,6 +117,13 @@ class helperfuncs {
     }
   }()
 
+  /**
+   * Box vs Sphere static collision test
+   * @param {BoxCollider} obj1
+   * @param {SphereCollider} obj2
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static box_sphere = function() {
     // closure scratch variables
     var center = new Vector3(),      // center of sphere, box-space coordinates
@@ -159,6 +183,13 @@ class helperfuncs {
     }
   }()
 
+  /**
+   * Box vs Plane static collision test
+   * @param {BoxCollider} obj1
+   * @param {PlaneCollider} obj2
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static box_plane = function() {
     // closure scratch variables
     var worldpos = new Vector3();
@@ -192,6 +223,13 @@ class helperfuncs {
     }
   }()
 
+  /**
+   * Vertex vs Vertex overlap test
+   * @param {vector3} v1
+   * @param {vector3} v2
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static vertex_vertex = function(v1, v2, contacts, dt) {
     if (!contacts) contacts = [];
     let distance = v1.distanceTo(v2);
@@ -206,6 +244,13 @@ class helperfuncs {
     return contacts;
   };
 
+  /**
+   * Vertex vs Sphere overlap test
+   * @param {vector3} vertex
+   * @param {SphereCollider} sphere
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static vertex_sphere = function() {
     let localvert = new Vector3();
     return function(vertex, sphere, contacts, dt) {
@@ -225,6 +270,13 @@ class helperfuncs {
     };
   }()
 
+  /**
+   * Vertex vs Box overlap test
+   * @param {vector3} vertex
+   * @param {BoxCollider} box
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static vertex_box = function() {
     var relpos = new Vector3();
     return function(vertex, box, contacts, dt) {
@@ -263,6 +315,13 @@ class helperfuncs {
     }
   }()
 
+  /**
+   * Vertex vs Triangle overlap test
+   * @param {vector3} vertex
+   * @param {TriangleCollider} triangle
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static vertex_triangle = function(vertex, triangle, contacts, dt) {
     if (triangle.containsPoint(vertex)) {
       var contact = new StaticContact({
@@ -275,6 +334,14 @@ class helperfuncs {
     }
     return contacts;
   };
+
+  /**
+   * Vertex vs Plane overlap test
+   * @param {vector3} vertex
+   * @param {PlaneCollider} plane
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static vertex_plane = function(vertex, plane) {
     // FIXME - Only one contact possible...should this return a single-element array to be consistent?
     var contact = false;
@@ -290,11 +357,18 @@ class helperfuncs {
     }
     return contact;
   }
+  /**
+   * Vertex vs Capsule overlap test
+   * @param {vector3} vertex
+   * @param {CapsuleCollider} capsule
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static vertex_capsule = (function() {
     const closest = new Vector3();
     return function(vertex, capsule) {
       let capsuleDims = capsule.getDimensions();
-      helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, vertex, closest);
+      ColliderFuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, vertex, closest);
       let distSq = closest.distanceToSquared(vertex);
       if (distSq <= capsule.radius * capsule.radius) {
         let dist = Math.sqrt(distSq);
@@ -313,6 +387,13 @@ class helperfuncs {
     }
   })();
 
+  /**
+   * Box vs Box static collision test
+   * @param {BoxCollider} box1
+   * @param {BoxCollider} box2
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static box_box = function() {
     // closure scratch variables
     var diff = new Vector3(),
@@ -433,7 +514,7 @@ class helperfuncs {
         // check box1's vertices against box2
         for (var i = 0; i < 8; i++) {
           box1.body.localToWorldPos(box1.getCorner(i, corner));
-          var contact = helperfuncs.vertex_box(corner, box2);
+          var contact = ColliderFuncs.vertex_box(corner, box2);
           if (contact) {
             contact.bodies = [box1, box2];
             contacts.push(contact);
@@ -442,7 +523,7 @@ class helperfuncs {
         // check box2's vertices against box1
         for (var i = 0; i < 8; i++) {
           box1.body.localToWorldPos(box1.getCorner(i, corner));
-          var contact = helperfuncs.vertex_box(corner, box2);
+          var contact = ColliderFuncs.vertex_box(corner, box2);
           if (contact) {
             contact.bodies = [box1, box2];
             contacts.push(contact);
@@ -476,6 +557,13 @@ class helperfuncs {
   }()
 
   /* cylinder helpers */
+  /**
+   * Cylinder vs Sphere static collision test
+   * @param {CylinderCollider} cylinder
+   * @param {SphereCollider} sphere
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static cylinder_sphere = function() {
     // closure scratch variables
     var spherepos = new Vector3();
@@ -563,18 +651,53 @@ class helperfuncs {
       return contacts;
     }
   }()
+  /**
+   * Sphere vs Cylinder static collision test
+   * @param {SphereCollider} sphere
+   * @param {CylinderCollider} cylinder
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static sphere_cylinder = function(sphere, cylinder, contacts, dt) {
     return this.cylinder_sphere(cylinder, sphere, contacts, dt);
   }
+  /**
+   * Sphere vs Triangle static collision test
+   * @param {SphereCollider} sphere
+   * @param {TriangleCollider} triangle
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static sphere_triangle = function(sphere, triangle, contacts, dt) {
     return this.triangle_sphere(triangle, sphere, contacts, dt);
   }
+  /**
+   * Cylinder vs Box static collision test (NOT IMPLEMENTED)
+   * @param {CylinderCollider} cylinder
+   * @param {SphereCollider} sphere
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static cylinder_box = function(cylinder, box, contacts, dt) {
     //return this.cylinder_sphere(cylinder, sphere, contacts);
   }
+  /**
+   * Cylinder vs Cylinder static collision test (NOT IMPLEMENTED)
+   * @param {CylinderCollider} cylinder
+   * @param {SphereCollider} sphere
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static cylinder_cylinder = function(cylinder, box, contacts, dt) {
     //return this.cylinder_sphere(cylinder, sphere, contacts);
   }
+  /**
+   * Cylinder vs Plane static collision test (NOT IMPLEMENTED)
+   * @param {CylinderCollider} cylinder
+   * @param {PlaneCollider} plane
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static cylinder_plane = function() {
     var up = new Vector3();
     var planenorm = new Vector3();
@@ -584,7 +707,7 @@ class helperfuncs {
     var tolerance = 1e-6;
 
     var checkPoint = function(point, cylinder, plane, contacts) {
-      var contact = helperfuncs.vertex_plane(point, plane);
+      var contact = ColliderFuncs.vertex_plane(point, plane);
       if (contact) {
         contact.bodies = [cylinder.body, plane.body];
         contacts.push(contact);
@@ -627,6 +750,13 @@ class helperfuncs {
   }()
 
   /* capsule helpers */
+  /**
+   * Capsule vs Sphere static collision test
+   * @param {CapsuleCollider} capsule
+   * @param {SphereCollider} sphere
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static capsule_sphere = function() {
     // closure scratch variables
     const spherepos = new Vector3(),
@@ -641,7 +771,7 @@ class helperfuncs {
       sphere.body.localToWorldPos(point.set(0,0,0));
 
 
-      helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, point, closest);
+      ColliderFuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, point, closest);
 
       normal.subVectors(closest, point);
       const distance = normal.length();
@@ -659,6 +789,13 @@ class helperfuncs {
       return contacts;
     }
   }()
+  /**
+   * Capsule vs Capsule static collision test
+   * @param {CapsuleCollider} capsule1
+   * @param {CapsuleCollider} capsule2
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static capsule_capsule = function() {
     // closure scratch variables
     const p1 = new Vector3(),
@@ -668,7 +805,7 @@ class helperfuncs {
       const capsule1Dims = capsule1.getDimensions(),
             capsule2Dims = capsule2.getDimensions();
 
-      let distSquared = helperfuncs.distancesquared_between_lines(capsule1Dims.start, capsule1Dims.end, capsule2Dims.start, capsule2Dims.end, p1, p2);
+      let distSquared = ColliderFuncs.distancesquared_between_lines(capsule1Dims.start, capsule1Dims.end, capsule2Dims.start, capsule2Dims.end, p1, p2);
 
       const capsule1ScaledRadius = capsule1.radius * Math.max(capsule1.body.scale.x, capsule1.body.scale.z),
             capsule2ScaledRadius = capsule2.radius * Math.max(capsule2.body.scale.x, capsule2.body.scale.z);
@@ -694,6 +831,13 @@ class helperfuncs {
       }
     }
   }()
+  /**
+   * Capsule vs Box static collision test
+   * @param {CapsuleCollider} capsule
+   * @param {BoxCollider} box
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static capsule_box = (function() {
     // closure scratch variables
     var boxpos = new Vector3();
@@ -725,11 +869,11 @@ class helperfuncs {
       rigid.position = start;
 
       var sphere = new SphereCollider(rigid, {radius: capsule.radius});
-      var head = helperfuncs.box_sphere(box, sphere);
+      var head = ColliderFuncs.box_sphere(box, sphere);
 
       rigid.position = end;
       var sphere2 = new SphereCollider(rigid, {radius: capsule.radius});
-      var tail = helperfuncs.box_sphere(box, sphere2);
+      var tail = ColliderFuncs.box_sphere(box, sphere2);
 
       if (head && tail) {
         head[0].bodies[1] = capsule.body;
@@ -748,6 +892,13 @@ class helperfuncs {
       return contacts;
     }
   })()
+  /**
+   * Capsule vs Cylinder static collision test
+   * @param {CapsuleCollider} capsule
+   * @param {CylinderCollider} cylinder
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static capsule_cylinder = function() {
     // closure scratch variables
     const cylpos = new Vector3(),
@@ -765,10 +916,10 @@ class helperfuncs {
       var sphere = new SphereCollider(capsule.body, {radius: capsule.radius});
       sphere.offset = new Vector3(0,0,0);
       if (capsule.offset) sphere.offset.add(capsule.offset);
-      var head = helperfuncs.box_sphere(box, sphere);
+      var head = ColliderFuncs.box_sphere(box, sphere);
       sphere.offset = new Vector3(0,capsule.length,0);
       if (capsule.offset) sphere.offset.add(capsule.offset);
-      var tail = helperfuncs.box_sphere(box, sphere);
+      var tail = ColliderFuncs.box_sphere(box, sphere);
       if (head && tail) {
         head[0].bodies[1] = capsule.body;
         tail[0].bodies[1] = capsule.body;
@@ -784,6 +935,13 @@ class helperfuncs {
       return contacts;
     }
   }()
+  /**
+   * Triangle vs Sphere dynamic collision test
+   * @param {TriangleCollider} triangle
+   * @param {SphereCollider} sphere
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static triangle_sphere = function() {
     // closure scratch variables
     const sphereClosestPointToPlane = new Vector3(),
@@ -809,7 +967,7 @@ class helperfuncs {
 
 
       // Check if we're already in contact
-      helperfuncs.closest_point_on_triangle(spherepos, p1, p2, p3, triangleClosestPoint);
+      ColliderFuncs.closest_point_on_triangle(spherepos, p1, p2, p3, triangleClosestPoint);
       let triangleDistSquared = triangleClosestPoint.distanceToSquared(spherepos)
       if (triangleDistSquared < sphere.radius * sphere.radius) {
         let contact = new StaticContact({
@@ -841,7 +999,7 @@ class helperfuncs {
       endpos.z = sphereClosestPointToPlane.z + scaledVelocity.z;
 
       // Find intersection between the ray our sphere is travelling and the plane upon which our triangle rests
-      let intersectionPlane = helperfuncs.line_plane(sphereClosestPointToPlane, endpos, p1, p2, p3, intersectionPoint);
+      let intersectionPlane = ColliderFuncs.line_plane(sphereClosestPointToPlane, endpos, p1, p2, p3, intersectionPoint);
       if (intersectionPlane && triangle.containsPoint(intersectionPlane.point)) {
         // If the intersection point is inside of our triangle, we've collided with the triangle's face
         let contact = new DynamicContact({
@@ -860,9 +1018,9 @@ class helperfuncs {
       endpos.z = spherepos.z + scaledVelocity.z;
       // FIXME - this is probably more efficient if we find the closest point on each edge first, use that to pick the closest edge, and then perform only one cylinder intersection test
       let intersections = [
-        helperfuncs.line_cylinder(spherepos, endpos, p1, p2, sphere.radius),
-        helperfuncs.line_cylinder(spherepos, endpos, p2, p3, sphere.radius),
-        helperfuncs.line_cylinder(spherepos, endpos, p3, p1, sphere.radius),
+        ColliderFuncs.line_cylinder(spherepos, endpos, p1, p2, sphere.radius),
+        ColliderFuncs.line_cylinder(spherepos, endpos, p2, p3, sphere.radius),
+        ColliderFuncs.line_cylinder(spherepos, endpos, p3, p1, sphere.radius),
       ];
 
       //console.log(intersections, sphere.body.position, endpos);
@@ -878,7 +1036,7 @@ class helperfuncs {
       if (closestIntersection !== null) {
         const intersectionPoint = endpos.clone().sub(spherepos).multiplyScalar(closestIntersectionDist).add(spherepos); // allocate point
 
-        helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, triangleClosestPoint);
+        ColliderFuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, triangleClosestPoint);
         let collisionNormal = new Vector3( // allocate normal
           intersectionPoint.x - triangleClosestPoint.x,
           intersectionPoint.y - triangleClosestPoint.y,
@@ -903,6 +1061,13 @@ class helperfuncs {
       }
     }
   }()
+  /**
+   * Triangle vs Capsule dynamic collision test
+   * @param {TriangleCollider} triangle
+   * @param {CapsuleCollider} capsule
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static triangle_capsule = function() {
     // Scratch variables
     const capsuleLine = new Vector3(),
@@ -934,8 +1099,8 @@ class helperfuncs {
       // Find the closest point of the capsule to the triangle
       let t = normal.dot(capsuleLine.subVectors(p1, capsuleDims.start).divideScalar(Math.abs(normal.dot(capsuleNormal))));
       intersectionPoint.copy(capsuleNormal).multiplyScalar(t).add(capsuleDims.start);
-      helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, closestPoint);
-      helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, closestPoint, localSphere.position);
+      ColliderFuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, closestPoint);
+      ColliderFuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, closestPoint, localSphere.position);
 
       // Perform a sphere/triangle intersection test with our sphere
       if (!localSphere.collider) {
@@ -946,7 +1111,7 @@ class helperfuncs {
       localSphere.orientation.copy(capsule.body.orientation);
       localSphere.velocity.copy(capsule.body.velocity);
       let localcontacts = [];
-      helperfuncs.triangle_sphere(triangle, localSphere.collider, localcontacts, dt);
+      ColliderFuncs.triangle_sphere(triangle, localSphere.collider, localcontacts, dt);
       if (localcontacts.length > 0) {
         let contact = localcontacts[0];
         contact.bodies[1] = capsule.body;
@@ -955,11 +1120,18 @@ class helperfuncs {
       }
     }
   }()
+  /**
+   * Mesh vs Sphere dynamic collision test
+   * @param {MeshCollider} mesh
+   * @param {SphereCollider} sphere
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static mesh_sphere = function() {
     return function(mesh, sphere, contacts, dt) {
       var localcontacts = [], spherecontacts = [];
 
-      helperfuncs.sphere_sphere(sphere, mesh.boundingSphere, spherecontacts, dt);
+      ColliderFuncs.sphere_sphere(sphere, mesh.boundingSphere, spherecontacts, dt);
       if (spherecontacts.length == 0) return;
 
       let spherepos = sphere.body.positionWorld,
@@ -969,7 +1141,7 @@ class helperfuncs {
             worldpoints = triangle.getWorldPoints(),
             distToCenter = worldpoints.center.distanceToSquared(spherepos);
         if (distToCenter <= sphereMaxDist + worldpoints.radius * worldpoints.radius) {
-          helperfuncs.triangle_sphere(mesh.triangles[i], sphere, localcontacts, dt);
+          ColliderFuncs.triangle_sphere(mesh.triangles[i], sphere, localcontacts, dt);
         }
       }
 
@@ -1004,11 +1176,18 @@ class helperfuncs {
       return contacts;
     }
   }()
+  /**
+   * Mesh vs Capsule dynamic collision test
+   * @param {MeshCollider} mesh
+   * @param {CapsuleCollider} capsule
+   * @param {array} contacts - list of contacts to append to (optional)
+   * @param {float} dt - delta time
+   */
   static mesh_capsule = function() {
     return function(mesh, capsule, contacts, dt) {
       var localcontacts = [], spherecontacts = [];
 
-      helperfuncs.capsule_sphere(capsule, mesh.boundingSphere, spherecontacts, dt);
+      ColliderFuncs.capsule_sphere(capsule, mesh.boundingSphere, spherecontacts, dt);
       if (spherecontacts.length == 0) return;
 
 
@@ -1019,7 +1198,7 @@ class helperfuncs {
             worldpoints = triangle.getWorldPoints(),
             distToCenter = worldpoints.center.distanceToSquared(capsulepos);
         if (distToCenter <= capsuleMaxDist + worldpoints.radius * worldpoints.radius) {
-          helperfuncs.triangle_capsule(triangle, capsule, localcontacts, dt);
+          ColliderFuncs.triangle_capsule(triangle, capsule, localcontacts, dt);
         }
       }
 
@@ -1055,12 +1234,26 @@ class helperfuncs {
     }
   }()
 
+  /**
+   * Closest point on sphere to another point
+   * @param {vector3} point
+   * @param {vector3} center
+   * @param {float} radius
+   * @param {vector3} closest - (optional)
+   */
   static closest_point_on_sphere = function(point, center, radius, closest) {
     if (!closest) closest = new Vector3();
     closest.copy(point).sub(center);
     closest.normalize().multiplyScalar(radius);
     return closest;
   }
+  /**
+   * Closest point on line to a point
+   * @param {vector3} start
+   * @param {vector3} end
+   * @param {vector3} point
+   * @param {vector3} closest - (optional)
+   */
   static closest_point_on_line = function() {
     var line = new Vector3(),
         proj = new Vector3();
@@ -1093,6 +1286,14 @@ class helperfuncs {
       return closest;
     }
   }()
+  /**
+   * Closest point on triangle to a point
+   * @param {vector3} point
+   * @param {vector3} a - triangle vertex a
+   * @param {vector3} b - triangle vertex b
+   * @param {vector3} c - triangle vertex c
+   * @param {vector3} closest - (optional)
+   */
   static closest_point_on_triangle = (function() {
     // Reference: Real Time Collision Detection by Christer Ericson
     let ab = new Vector3(),
@@ -1160,15 +1361,24 @@ class helperfuncs {
       return closest.copy(ac).multiplyScalar(w).add(ab.multiplyScalar(v)).add(a);
     }
   })();
+  /**
+   * Closest point on line to triangle
+   * @param {vector3} start
+   * @param {vector3} end
+   * @param {vector3} a - triangle vertex a
+   * @param {vector3} b - triangle vertex b
+   * @param {vector3} c - triangle vertex c
+   * @param {vector3} closest - (optional)
+   */
   static closest_point_on_line_to_triangle = (function() {
     const closestAB = new Vector3(),
           closestBC = new Vector3(),
           closestCA = new Vector3();
 
     return function(start, end, a, b, c, closest) {
-      let distAB = helperfuncs.distancesquared_between_lines(start, end, a, b),
-          distBC = helperfuncs.distancesquared_between_lines(start, end, b, c),
-          distCA = helperfuncs.distancesquared_between_lines(start, end, c, a);
+      let distAB = ColliderFuncs.distancesquared_between_lines(start, end, a, b),
+          distBC = ColliderFuncs.distancesquared_between_lines(start, end, b, c),
+          distCA = ColliderFuncs.distancesquared_between_lines(start, end, c, a);
       // TODO - finish implementing logic
     }
   })();
@@ -1236,10 +1446,24 @@ class helperfuncs {
       return d.dot(d);
     }
   }()
+  /**
+   * Distance from a point to a line
+   * @param {vector3} start
+   * @param {vector3} end
+   * @param {vector3} point
+   */
   static distance_to_line = function(start, end, point) {
     return this.closest_point_on_line(start, end, point).distanceTo(point);
   }
 
+  /**
+   * Ray / Sphere intersection test
+   * @param {vector3} raypos
+   * @param {vector3} dir
+   * @param {vector3} spherepos
+   * @param {float} radius
+   * @param {vector3} point
+   */
   static ray_sphere = (function() {
     // Closure scratch variables
     let m = new Vector3(),
@@ -1265,6 +1489,15 @@ class helperfuncs {
       return {point, t};
     }
   })();
+  /**
+   * Line / Sphere intersection test
+   * @param {vector3} start
+   * @param {vector3} end
+   * @param {vector3} spherepos
+   * @param {float} radius
+   * @param {vector3} point
+   * @param {boolean} isRay
+   */
   static line_sphere = (function() {
     // Closure scratch variables
     let m = new Vector3(),
@@ -1292,6 +1525,15 @@ class helperfuncs {
       return {point: point, t: t / len};
     }
   })();
+  /**
+   * Line / Plane intersection test
+   * @param {vector3} start
+   * @param {vector3} end
+   * @param {vector3} p1
+   * @param {vector3} p2
+   * @param {vector3} p3
+   * @param {vector3} point
+   */
   static line_plane = (function() {
     let ab = new Vector3(),
         planeNormal = new Vector3(),
@@ -1310,6 +1552,15 @@ class helperfuncs {
       }
     }
   })();
+  /**
+   * Line / Cylinder intersection test
+   * @param {vector3} sa
+   * @param {vector3} sb
+   * @param {vector3} p
+   * @param {vector3} q
+   * @param {float} r
+   * @param {float} t
+   */
   static line_cylinder = (function() {
     let d = new Vector3(),
         m = new Vector3(),
@@ -1389,6 +1640,15 @@ class helperfuncs {
    * =========
    */
  
+/**
+ * Sphere collider
+ * @param {RigidBody} body
+ * @param {object} args
+ * @param {float} args.radius
+ * @param {vector3} args.scale
+ * @param {vector3} args.offset
+ * @param {boolean} args.trigger
+ */
 class SphereCollider {
   constructor(body, args={}) {
     this.type = 'sphere';
@@ -1405,22 +1665,22 @@ class SphereCollider {
     if (!contacts) contacts = [];
     switch(other.type) {
       case 'sphere':
-        contacts = helperfuncs.sphere_sphere(this, other, contacts, dt);
+        contacts = ColliderFuncs.sphere_sphere(this, other, contacts, dt);
         break;
       case 'plane':
-        contacts = helperfuncs.sphere_plane(this, other, contacts, dt);
+        contacts = ColliderFuncs.sphere_plane(this, other, contacts, dt);
         break;
       case 'box':
-        contacts = helperfuncs.box_sphere(other, this, contacts, dt);
+        contacts = ColliderFuncs.box_sphere(other, this, contacts, dt);
         break;
       case 'cylinder':
-        contacts = helperfuncs.sphere_cylinder(this, other, contacts, dt);
+        contacts = ColliderFuncs.sphere_cylinder(this, other, contacts, dt);
         break;
       case 'capsule':
-        contacts = helperfuncs.capsule_sphere(other, this, contacts, dt);
+        contacts = ColliderFuncs.capsule_sphere(other, this, contacts, dt);
         break;
       case 'mesh':
-        contacts = helperfuncs.mesh_sphere(other, this, contacts, dt);
+        contacts = ColliderFuncs.mesh_sphere(other, this, contacts, dt);
         break;
       default:
         console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
@@ -1448,6 +1708,14 @@ class SphereCollider {
     };
   }
 }
+/**
+ * Plane collider
+ * @param {RigidBody} body
+ * @param {object} args
+ * @param {float} args.normal
+ * @param {vector3} args.offset
+ * @param {boolean} args.trigger
+ */
 class PlaneCollider {
   constructor(body, args={}) {
     this.type = 'plane';
@@ -1460,11 +1728,11 @@ class PlaneCollider {
   getContacts(other, contacts, dt) {
     if (!contacts) contacts = [];
     if (other instanceof SphereCollider) {
-      contacts = helperfuncs.sphere_plane(other, this, contacts, dt);
+      contacts = ColliderFuncs.sphere_plane(other, this, contacts, dt);
     } else if (other instanceof BoxCollider) {
-      contacts = helperfuncs.box_plane(other, this, contacts, dt);
+      contacts = ColliderFuncs.box_plane(other, this, contacts, dt);
     } else if (other instanceof CylinderCollider) {
-      contacts = helperfuncs.cylinder_plane(other, this, contacts, dt);
+      contacts = ColliderFuncs.cylinder_plane(other, this, contacts, dt);
     } else {
       console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
     }
@@ -1483,6 +1751,14 @@ class PlaneCollider {
     };
   }
 }
+/**
+ * Box collider
+ * @param {RigidBody} body
+ * @param {object} args
+ * @param {vector3} args.min
+ * @param {vector3} args.max
+ * @param {boolean} args.trigger
+ */
 class BoxCollider {
   constructor(body, args={}) {
     this.type = 'box';
@@ -1500,13 +1776,13 @@ class BoxCollider {
   getContacts(other, contacts, dt) {
     if (!contacts) contacts = [];
     if (other instanceof PlaneCollider) {
-      contacts = helperfuncs.box_plane(this, other, contacts, dt);
+      contacts = ColliderFuncs.box_plane(this, other, contacts, dt);
     } else if (other instanceof SphereCollider) {
-      contacts = helperfuncs.box_sphere(this, other, contacts, dt);
+      contacts = ColliderFuncs.box_sphere(this, other, contacts, dt);
     } else if (other instanceof BoxCollider) {
-      contacts = helperfuncs.box_box(this, other, contacts, dt);
+      contacts = ColliderFuncs.box_box(this, other, contacts, dt);
     } else if (other instanceof CylinderCollider) {
-      contacts = helperfuncs.cylinder_box(other, this, contacts, dt);
+      contacts = ColliderFuncs.cylinder_box(other, this, contacts, dt);
     } else {
       //console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
     }
@@ -1566,6 +1842,15 @@ class BoxCollider {
     };
   }
 }
+/**
+ * Cylinder collider
+ * @param {RigidBody} body
+ * @param {object} args
+ * @param {float} args.radius
+ * @param {float} args.height
+ * @param {vector3} args.offset
+ * @param {boolean} args.trigger
+ */
 class CylinderCollider {
   constructor(body, args={}) {
     this.type = 'cylinder';
@@ -1580,13 +1865,13 @@ class CylinderCollider {
   getContacts(other, contacts, dt) {
     if (!contacts) contacts = [];
     if (other instanceof PlaneCollider) {
-      contacts = helperfuncs.cylinder_plane(this, other, contacts, dt);
+      contacts = ColliderFuncs.cylinder_plane(this, other, contacts, dt);
     } else if (other instanceof SphereCollider) {
-      contacts = helperfuncs.cylinder_sphere(this, other, contacts, dt);
+      contacts = ColliderFuncs.cylinder_sphere(this, other, contacts, dt);
     } else if (other instanceof BoxCollider) {
-      contacts = helperfuncs.cylinder_box(this, other, contacts, dt);
+      contacts = ColliderFuncs.cylinder_box(this, other, contacts, dt);
     } else if (other instanceof CylinderCollider) {
-      contacts = helperfuncs.cylinder_cylinder(this, other, contacts, dt);
+      contacts = ColliderFuncs.cylinder_cylinder(this, other, contacts, dt);
     } else {
       console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
     }
@@ -1616,6 +1901,15 @@ class CylinderCollider {
     };
   }
 }
+/**
+ * Capsule collider
+ * @param {RigidBody} body
+ * @param {object} args
+ * @param {float} args.radius
+ * @param {float} args.length
+ * @param {vector3} args.offset
+ * @param {boolean} args.trigger
+ */
 class CapsuleCollider {
   constructor(body, args={}) {
     this.type = 'capsule';
@@ -1634,18 +1928,18 @@ class CapsuleCollider {
   getContacts(other, contacts, dt) {
     if (!contacts) contacts = [];
     if (other instanceof PlaneCollider) {
-      contacts = helperfuncs.capsule_plane(this, other, contacts, dt);
+      contacts = ColliderFuncs.capsule_plane(this, other, contacts, dt);
     } else if (other instanceof SphereCollider) {
-      contacts = helperfuncs.capsule_sphere(this, other, contacts, dt);
+      contacts = ColliderFuncs.capsule_sphere(this, other, contacts, dt);
     } else if (other instanceof BoxCollider) {
-      contacts = helperfuncs.capsule_box(this, other, contacts, dt);
+      contacts = ColliderFuncs.capsule_box(this, other, contacts, dt);
     } else if (other instanceof MeshCollider) {
-      contacts = helperfuncs.mesh_capsule(other, this, contacts, dt);
+      contacts = ColliderFuncs.mesh_capsule(other, this, contacts, dt);
     } else if (other instanceof CapsuleCollider) {
-      contacts = helperfuncs.capsule_capsule(this, other, contacts, dt);
+      contacts = ColliderFuncs.capsule_capsule(this, other, contacts, dt);
 /*
     } else if (other instanceof CylinderCollider) {
-      contacts = helperfuncs.capsule_cylinder(this, other, contacts);
+      contacts = ColliderFuncs.capsule_cylinder(this, other, contacts);
     } else {
       console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
 */
@@ -1683,6 +1977,15 @@ class CapsuleCollider {
     };
   }
 }
+/**
+ * Mesh collider
+ * @param {RigidBody} body
+ * @param {object} args
+ * @param {Mesh} args.mesh
+ * @param {object} args.modeldata
+ * @param {boolean} args.isroot
+ * @param {boolean} args.trigger
+ */
 class MeshCollider {
   constructor(body, args={}) {
     this.type = 'mesh';
@@ -1829,14 +2132,14 @@ class MeshCollider {
   getContacts(other, contacts, dt) {
     if (!contacts) contacts = [];
     if (other instanceof SphereCollider) {
-      contacts = helperfuncs.mesh_sphere(this, other, contacts, dt);
+      contacts = ColliderFuncs.mesh_sphere(this, other, contacts, dt);
     } else if (other instanceof CapsuleCollider) {
-      contacts = helperfuncs.mesh_capsule(this, other, contacts);
+      contacts = ColliderFuncs.mesh_capsule(this, other, contacts);
 /*
     } else if (other instanceof BoxCollider) {
-      contacts = helperfuncs.mesh_box(this, other, contacts);
+      contacts = ColliderFuncs.mesh_box(this, other, contacts);
     } else if (other instanceof CylinderCollider) {
-      contacts = helperfuncs.mesh_cylinder(this, other, contacts);
+      contacts = ColliderFuncs.mesh_cylinder(this, other, contacts);
     } else {
       console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
 */
@@ -1880,6 +2183,15 @@ class MeshCollider {
     };
   }
 }
+/**
+ * Triangle collider
+ * @param {RigidBody} body
+ * @param {object} args
+ * @param {vector3} args.0
+ * @param {vector3} args.1
+ * @param {vector3} args.2
+ * @param {boolean} args.trigger
+ */
 class TriangleCollider {
   constructor(body, args={}) {
     this.type = 'triangle';
@@ -1926,14 +2238,14 @@ class TriangleCollider {
   getContacts(other, contacts, dt) {
     if (!contacts) contacts = [];
     if (other instanceof SphereCollider) {
-      contacts = helperfuncs.triangle_sphere(this, other, contacts, dt);
+      contacts = ColliderFuncs.triangle_sphere(this, other, contacts, dt);
     } else if (other instanceof CapsuleCollider) {
-      contacts = helperfuncs.triangle_capsule(this, other, contacts);
+      contacts = ColliderFuncs.triangle_capsule(this, other, contacts);
 /*
     } else if (other instanceof BoxCollider) {
-      contacts = helperfuncs.capsule_box(this, other, contacts);
+      contacts = ColliderFuncs.capsule_box(this, other, contacts);
     } else if (other instanceof CylinderCollider) {
-      contacts = helperfuncs.capsule_cylinder(this, other, contacts);
+      contacts = ColliderFuncs.capsule_cylinder(this, other, contacts);
     } else {
       console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
 */
@@ -1985,7 +2297,7 @@ class TriangleCollider {
     return function(point) {
       //return this.normal.dot(point) + this.offset;
       // TODO - should use cached world points
-      helperfuncs.closest_point_on_triangle(point, this.p1, this.p2, this.p3, triangleClosestPoint);
+      ColliderFuncs.closest_point_on_triangle(point, this.p1, this.p2, this.p3, triangleClosestPoint);
       return triangleClosestPoint.distanceTo(point);
     }
   })();
