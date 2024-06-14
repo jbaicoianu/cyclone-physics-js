@@ -1,5 +1,8 @@
 import { Vector3, Quaternion, Matrix4, Euler } from 'three';
 
+/**
+ * A stationary intersection between two bodies
+ */
 export class StaticContact {
   constructor(contactargs) {
     this.bodies = [];
@@ -308,6 +311,9 @@ export class StaticContact {
   }
 }
 
+/**
+ * A moving collision between two bodies
+ */
 export class DynamicContact extends StaticContact {
   constructor(contactargs) {
     super(contactargs);
