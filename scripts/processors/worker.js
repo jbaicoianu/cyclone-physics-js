@@ -4,7 +4,7 @@ elation.require(['physics.processors'], function() {
 
     this.worker = new elation.worker.thread('physics.worker', 'physicsworker');
 console.log('make new worker', this.worker);
-    elation.events.add(this.worker, 'message', ev => this.handleMessage(ev));
+    this.worker.addEventListener('message', ev => this.handleMessage(ev));
     let subprocessor = args.subprocessor || 'cpu',
         subprocessorargs = args.processorargs || {};
     this.worker.postMessage({type: 'system_init', processortype: subprocessor, args: subprocessorargs});
@@ -31,8 +31,8 @@ console.log('make new worker', this.worker);
           let objdata = this.serializeObject(object);
           if (!this.objects[objdata.id]) { // || this.objects[objdata.id] !== object) {
             this.objects[objdata.id] = object;
-            elation.events.add(object, 'add', ev => this.sendAdd(ev.data));
-            elation.events.add(object, 'remove', ev => this.sendRemove(ev.target, ev.data));
+            object.addEventListener('add', ev => this.sendAdd(ev.detail));
+            object.addEventListener('remove', ev => this.sendRemove(ev.target, ev.detail));
             if (object.collider) {
               objdata.collider = object.collider.toJSON();
 /*
@@ -41,13 +41,13 @@ setTimeout(() => {
 }, 1000);
 */
             }
-            elation.events.add(object, 'collider_change', ev => this.sendColliderUpdate(object));
+            object.addEventListener('collider_change', ev => this.sendColliderUpdate(object));
             if (object.forces.length > 0) {
               objdata.forces = [];
               for (let i = 0; i < object.forces.length; i++) {
                 let f = object.forces[i];
                 objdata.forces.push(f.toJSON());
-                elation.events.add(f, 'physics_force_update', ev => this.worker.postMessage({type: 'force_update', objectid: objdata.id, forcenum: i, force: f.toJSON()}));
+                f.addEventListener('physics_force_update', ev => this.worker.postMessage({type: 'force_update', objectid: objdata.id, forcenum: i, force: f.toJSON()}));
               }
             }
           }
@@ -87,8 +87,8 @@ setTimeout(() => {
           penetration: penetration,
           bodies: [body1, body2]
         });
-        elation.events.fire({type: 'physics_collide', element: body1, data: contact});
-        elation.events.fire({type: 'physics_collide', element: body2, data: contact});
+        body1.dispatchEvent(new CustomEvent('physics_collide', { detail: contact }));
+        body2.dispatchEvent(new CustomEvent('physics_collide', { detail: contact }));
 /*
         let contact2 = new elation.physics.contact({
           normal: normal.clone().multiplyScalar(-1),
@@ -96,7 +96,7 @@ setTimeout(() => {
           penetration: penetration,
           bodies: [body2, body1]
         });
-        elation.events.fire({type: 'physics_collide', element: body2, data: contact2});
+        body2.dispatchEvent(new CustomEvent('physics_collide', { detail: contact2 }));
 */
       }
     }
@@ -117,7 +117,7 @@ setTimeout(() => {
           obj.orientationWorld.reset();
           obj.velocity.reset();
           obj.angular.reset();
-          elation.events.fire({element: obj, type: "physics_update"});
+          obj.dispatchEvent(new CustomEvent('physics_update'));
         }
       }
     }
