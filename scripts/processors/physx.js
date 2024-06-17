@@ -12,8 +12,8 @@ console.log('my new physx processor', this.path, parent, parent.children.length,
     this.emptyresponse = [];
     //this.objects = { player: player.objects.dynamics };
 
-    elation.events.add(parent, 'add', this);
-    elation.events.add(parent, 'remove', this);
+    parent.addEventListener('add', ev => this.handleAdd(ev.detail));
+    parent.addEventListener('remove', ev => this.handleAdd(ev.detail));
 
     let physx;
     if (typeof importScripts == 'function') {
@@ -36,19 +36,19 @@ console.log('my new physx processor', this.path, parent, parent.children.length,
   handleAdd(obj) {
     console.log('physx added a guy', obj);
 
-    elation.events.add(obj, 'add', this);
-    elation.events.add(obj, 'remove', this);
+    obj.addEventListener('add', this);
+    obj.addEventListener('remove', this);
   }
   handleRemove(obj) {
     console.log('physx removed a guy', obj);
-    elation.events.remove(obj, 'add', this);
-    elation.events.remove(obj, 'remove', this);
+    obj.removeEventListener('add', this);
+    obj.removeEventListener('remove', this);
   }
   handleEvent(ev) {
     if (ev.type == 'add') {
-      this.handleAdd(ev.data);
+      this.handleAdd(ev.detail);
     } else if (ev.type == 'remove') {
-      this.handleRemove(ev.data);
+      this.handleRemove(ev.detail);
     }
   }
 }
@@ -110,8 +110,8 @@ console.log('load physx js');
         let thing2 = this.shapemap.get(shape2.$$.ptr);
         if (thing1 && thing2) {
           //postMessage({type: 'contact_begin', thing1: thing1.userData, thing2: thing2.userData, point: contact.position, normal: contact.normal, penetration: -contact.separation});
-          elation.events.fire({type: 'physics_collide', element: this.objects[thing1.userData], data: { other: this.objects[thing2.userData], point: contact.position, normal: contact.normal, penetration: -contact.separation}});
-          elation.events.fire({type: 'physics_collide', element: this.objects[thing2.userData], data: { other: this.objects[thing1.userData], point: contact.position, normal: contact.normal, penetration: -contact.separation}});
+          this.objects[thing1.userData].dispatchEvent(new CustomEvent('physics_collide', { detail: { other: this.objects[thing2.userData], point: contact.position, normal: contact.normal, penetration: -contact.separation} }));
+          this.objects[thing2.userData].dispatchEvent(new CustomEvent('physics_collide', { detail: { other: this.objects[thing2.userData], point: contact.position, normal: contact.normal, penetration: -contact.separation } }));
         }
       },
       onContactEnd: () => {},
@@ -241,7 +241,7 @@ console.log('my controller', this.controller);
         this.physxobjects[obj.id] = this.createPhysxObject(obj);
         this.objects[obj.id] = obj;
 console.log('changed and created', obj);
-        elation.events.add(obj, 'collider_change', ev => console.log('object collider changed', obj, ev));
+        obj.addEventListener('collider_change', ev => console.log('object collider changed', obj, ev));
       } else { //if (this.physxobjects[obj.id].updateValues) {
         //this.objects[obj.id].updateValues(obj);
         if (obj.forces && this.physxobjects[obj.id]) {

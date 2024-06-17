@@ -178,8 +178,8 @@ setTimeout(() => this.advance(), 1000 / this.fps);
         this.objects[obj.id].collider.getInertialMoment();
         this.objects[obj.id].collider.trigger = obj.collider.trigger;
         let root = (collider.type == 'mesh' ? collider.getRoot() : collider.body);
-        elation.events.add(root, 'physics_collide', (ev) => {
-          let contact = ev.data,
+        root.addEventListener('physics_collide', ev => {
+          let contact = ev.detail,
               body1 = contact.bodies[0],
               body2 = contact.bodies[1];
           postMessage({type: 'contact_begin', thing1: body1.id, thing2: body2.id, point: contact.point, normal: contact.normal, penetration: contact.penetration});
