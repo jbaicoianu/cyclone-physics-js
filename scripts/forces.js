@@ -343,7 +343,7 @@ class AeroForce extends EventTarget {
 /**
  * Aerodynamic controller force generator
  */
-class AeroControlForce extends AeroControl {
+class AeroControlForce extends AeroForce {
   constructor(body, args) {
     super(body, args);
     this.type = 'aerocontrol';
