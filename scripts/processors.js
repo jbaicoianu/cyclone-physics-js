@@ -53,12 +53,21 @@ elation.require(["physics.common"], function() {
           var obj1 = potentialpair[0], obj2 = potentialpair[1];
           // Get list of all contact points between the two objects
           var contacts = obj1.getContacts(obj2, [], t);
+/*
           if (contacts && contacts.length > 0) {
             // Resolve the deepest contact first
             var deepest = this.getDeepestContact(contacts);
             collisions.push(deepest);
             obj1.state.colliding = true;
             obj2.state.colliding = true;
+          }
+*/
+          if (contacts && contacts.length > 0) {
+            for (let i = 0; i < contacts.length; i++) {
+              collisions.push(contacts[i]);
+              obj1.state.colliding = true;
+              obj2.state.colliding = true;
+            }
           }
         }
         //console.log(potentials.length + ' potential crashes:', potentials, collisions);
@@ -103,7 +112,7 @@ elation.require(["physics.common"], function() {
         let contact = contacts.shift();
         contact.resolve(t, linearChange, angularChange, contacts);
         // console.log('blah', contacts.length, linearChange[1].toArray().map(x => +x.toFixed(4)), contact.bodies)
-        break;
+        //break;
       }
     }
   });
