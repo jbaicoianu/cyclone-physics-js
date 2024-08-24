@@ -809,15 +809,12 @@ elation.require(['physics.common', 'utils.math'], function() {
               p3 = worldpoints.p3,
               normal = worldpoints.normal;
 
-        if (spherevel.dot(normal) > 0) {
-          return; // moving away, can't collide
-        }
-
+        let velNormal = spherevel.dot(normal);
 
         // Check if we're already in contact
         elation.physics.colliders.helperfuncs.closest_point_on_triangle(spherepos, p1, p2, p3, triangleClosestPoint);
         let triangleDistSquared = triangleClosestPoint.distanceToSquared(spherepos)
-        if (triangleDistSquared < sphere.radius * sphere.radius) {
+        if (triangleDistSquared < sphere.radius * sphere.radius && velNormal <= 0) {
           let contact = new elation.physics.contact({
             normal: normal.clone(), // allocate normal
             point: triangleClosestPoint.clone(), // allocate point
@@ -890,7 +887,7 @@ elation.require(['physics.common', 'utils.math'], function() {
             intersectionPoint.y - triangleClosestPoint.y,
             intersectionPoint.z - triangleClosestPoint.z
           );
-          normal.normalize();
+          collisionNormal.normalize();
 
           intersectionPoint.x += collisionNormal.x * -sphere.radius;
           intersectionPoint.y += collisionNormal.y * -sphere.radius;
@@ -1702,6 +1699,8 @@ elation.require(['physics.common', 'utils.math'], function() {
       let triangles = [];
       let radiusSq = 0;
 
+      this.body.updateState(); // ensure scaleWorld is up to date before processing triangles
+      let doubleSided = false;
       if (!this.modeldata && this.mesh && this.mesh.geometry) {
         if (this.mesh.geometry instanceof THREE.BufferGeometry) {
           this.modeldata = {
@@ -1717,6 +1716,7 @@ elation.require(['physics.common', 'utils.math'], function() {
             }
           }
         }
+        doubleSided = this.mesh.material.side == THREE.DoubleSide;
       }
       if (this.modeldata) {
         if (this.modeldata.index) {
@@ -1741,6 +1741,11 @@ elation.require(['physics.common', 'utils.math'], function() {
 
             if (!triangle.isDegenerate()) {
               triangles.push(triangle);
+
+              if (doubleSided) {
+                let triangle2 = new elation.physics.colliders.triangle(this.body, [p3, p2, p1]);
+                triangles.push(triangle2);
+              }
 
               let l1 = p1.lengthSq(),
                   l2 = p2.lengthSq(),
@@ -1776,7 +1781,7 @@ elation.require(['physics.common', 'utils.math'], function() {
           }
         }
       }
-      this.radius = Math.sqrt(radiusSq);
+      this.radius = Math.sqrt(radiusSq) * Math.max(this.body.scaleWorld.x, this.body.scaleWorld.y, this.body.scaleWorld.z);
       this.boundingSphere.radius = this.radius;
       return triangles;
     }
@@ -1812,11 +1817,11 @@ elation.require(['physics.common', 'utils.math'], function() {
             bodies[obj.uuid].scale.copy(obj.scale);
             bodies[obj.uuid].orientation.copy(obj.quaternion);
             bodies[obj.uuid].object = this.body.object;
+            parent.add(bodies[obj.uuid]);
             if (obj instanceof THREE.Mesh) {
               bodies[obj.uuid].setCollider('mesh', {mesh: obj, isroot: false });
               //elation.events.add(bodies[obj.uuid], 'physics_collide', (ev) => elation.events.fire({type: 'physics_collide', element: this.body, event: ev}));
             }
-            parent.add(bodies[obj.uuid]);
           }
           parent = bodies[obj.uuid];
         }
