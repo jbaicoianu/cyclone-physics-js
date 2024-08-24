@@ -9,6 +9,8 @@ elation.require(['physics.common', 'utils.math'], function() {
       // closure scratch variables
       var thispos = new THREE.Vector3(),
           otherpos = new THREE.Vector3(),
+          thisvel = new THREE.Vector3(),
+          othervel = new THREE.Vector3(),
           midline = new THREE.Vector3(),
           scaledVelocity = new THREE.Vector3(),
           intersectionPoint = new THREE.Vector3();
@@ -44,7 +46,15 @@ elation.require(['physics.common', 'utils.math'], function() {
         } else {
           let r = obj1.radius + obj2.radius;
           // FIXME - probably need to transform velocity into world coordinates as well
-          let v = scaledVelocity.copy(obj1.body.velocity).sub(obj2.body.velocity).multiplyScalar(dt);
+          obj1.body.localToWorldDir(thisvel.copy(obj1.body.velocity));
+          obj2.body.localToWorldDir(othervel.copy(obj2.body.velocity));
+
+
+          let v = scaledVelocity.copy(thisvel).sub(othervel).multiplyScalar(dt);
+
+          midline.copy(thispos).sub(otherpos).normalize();
+
+          //if (midline.dot(scaledVelocity) > 0) return; // moving away, can't collide
 
           let endpos = midline.copy(thispos).add(v);
 
