@@ -628,7 +628,10 @@ export class RigidBody extends EventTarget {
    * Return a clone of this object
    * @returns {RigidBody}
    */
-  static clone() {
+  clone() {
     return new RigidBody(this);
+  }
+  allocate() {
+    return new RigidBody();
   }
 }
