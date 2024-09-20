@@ -862,7 +862,7 @@ class ColliderFuncs {
       // FIXME - ugly hack using two spheres
       // TODO - use proper sphere-swept line calculations
       if (!rigid) {
-        rigid = capsule.clone();
+        rigid = capsule.body.clone();
       }
       rigid.velocity = capsule.body.velocity;
       rigid.orientation = capsule.body.orientation;
@@ -1093,7 +1093,7 @@ class ColliderFuncs {
             normal = worldpoints.normal;
 
       if (!localSphere) {
-        localSphere = capsule.clone();
+        localSphere = capsule.body.allocate();
       }
 
       // Find the closest point of the capsule to the triangle
@@ -2112,7 +2112,7 @@ class MeshCollider {
       for (let j = 0; j < parents.length; j++) {
         let obj = parents[j];
         if (!bodies[obj.uuid]) {
-          bodies[obj.uuid] = new RigidBody();
+          bodies[obj.uuid] = this.body.allocate();
           bodies[obj.uuid].id = obj.uuid;
           bodies[obj.uuid].position.copy(obj.position);
           bodies[obj.uuid].scale.copy(obj.scale);
