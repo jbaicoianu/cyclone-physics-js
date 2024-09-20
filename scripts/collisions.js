@@ -1,4 +1,4 @@
-import { Vector3, Quaternion, Matrix4, Euler } from 'three'
+import { Vector3, Quaternion, Matrix4, Euler, MathUtils } from 'three'
 import { StaticContact, DynamicContact } from './contacts.js'
 import * as elation from 'elation';
 
@@ -157,9 +157,9 @@ class ColliderFuncs {
       }
 
       // Find closest point on box
-      closest.x = elation.math.clamp(center.x, scaledmin.x, scaledmax.x);
-      closest.y = elation.math.clamp(center.y, scaledmin.y, scaledmax.y);
-      closest.z = elation.math.clamp(center.z, scaledmin.z, scaledmax.z);
+      closest.x = MathUtils.clamp(center.x, scaledmin.x, scaledmax.x);
+      closest.y = MathUtils.clamp(center.y, scaledmin.y, scaledmax.y);
+      closest.z = MathUtils.clamp(center.z, scaledmin.z, scaledmax.z);
 
       // See if we're in contact
       diff.subVectors(closest, center);
@@ -1410,19 +1410,19 @@ class ColliderFuncs {
       }
       if (a <= 1e-6) {
         // first segment degenerates into a point
-        t = elation.math.clamp(f / e, 0, 1);
+        t = MathUtils.clamp(f / e, 0, 1);
       } else {
         let c = d1.dot(r);
         if (e < 1e-6) {
           // second segment degenerates into a point
-          s = elation.math.clamp(-c / a, 0, 1);
+          s = MathUtils.clamp(-c / a, 0, 1);
         } else {
           // general non-degenerate case
           let b = d1.dot(d2);
           let denom = a * e - b * b;
           if (denom != 0) {
             // segments aren't parallel, compute closest point on L1 to L2 and clamp to segment S1
-            s = elation.math.clamp((b * f - c * e) / denom, 0, 1);
+            s = MathUtils.clamp((b * f - c * e) / denom, 0, 1);
           } else {
             // segments are parallel, pick arbitrary s=0
             s = 0;
@@ -1432,10 +1432,10 @@ class ColliderFuncs {
           // if t in [0,1] done. Else clamp t, recompute s for new value of t and clamp to [0, 1]
           if (t < 0) {
             t = 0;
-            s = elation.math.clamp(-c / a, 0, 1);
+            s = MathUtils.clamp(-c / a, 0, 1);
           } else if (t > 1) {
             t = 1;
-            s = elation.math.clamp((b - c) / a, 0, 1);
+            s = MathUtils.clamp((b - c) / a, 0, 1);
           }
         }
       }
