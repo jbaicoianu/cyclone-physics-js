@@ -20,6 +20,7 @@ export class PhysicsProcessor {
       if (obj.children.length > 0) {
         this.update(obj.children, t, active);
       }
+      obj.processConstraints();
     }
     return active;
   }
