@@ -122,7 +122,6 @@ export class RigidBody extends EventTarget {
   updateAcceleration(framedata) {
     this.lastacceleration.copy(this.acceleration);
     if (this.forces.length > 0) {
-      this.clearAccumulators();
       for (let k in this.forces) {
         this.forces[k].apply(framedata); // FIXME - electrostatic force is the only one which uses this, as a way to cache results across objects each frame. Should evaluate alternate ways of doing that
       }
@@ -131,6 +130,7 @@ export class RigidBody extends EventTarget {
         this.angularacceleration.copy(this.torque_accumulator.applyMatrix4(this.collider.momentInverse));
       }
     }
+    this.clearAccumulators();
     this.updateState();
     //console.log([this.acceleration.x, this.acceleration.y, this.acceleration.z], [this.angularacceleration.x, this.angularacceleration.y, this.angularacceleration.z]);
   }
