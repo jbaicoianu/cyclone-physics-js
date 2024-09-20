@@ -170,16 +170,16 @@ class FrictionForce extends EventTarget {
     this.type = 'friction';
     this.friction = args.friction || args;
 
-    let _force = new Vector3();
+    this._force = new Vector3();
 
   }
   apply() {
-    _force.set(0,0,0);
+    this._force.set(0,0,0);
     if (this.friction > 0) {
       var vsq = this.body.velocity.lengthSq();
-      _force.copy(this.body.velocity).multiplyScalar(-1 * this.friction * this.body.mass);
+      this._force.copy(this.body.velocity).multiplyScalar(-1 * this.friction * this.body.mass);
     }
-    this.body.applyForce(_force);
+    this.body.applyForce(this._force);
     this.dispatchEvent(new CustomEvent('physics_force_apply'));
   }
   update(updateargs) {
