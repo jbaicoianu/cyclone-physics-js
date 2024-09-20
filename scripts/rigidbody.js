@@ -4,7 +4,7 @@ import { CycloneVector3, CycloneQuaternion } from './common.js';
 import { forces } from './forces.js';
 import { constraints } from './constraints.js';
 import { colliders } from './collisions.js';
-import * as elation from 'elation';
+import elation from 'elation';
 
 /**
  * Represents a physically simulated object

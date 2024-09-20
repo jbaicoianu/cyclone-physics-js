@@ -1,6 +1,6 @@
 import { Vector3, Quaternion, Matrix4, Euler, MathUtils } from 'three'
 import { StaticContact, DynamicContact } from './contacts.js'
-import * as elation from 'elation';
+import elation from 'elation';
 
 /**
  * @module Colliders

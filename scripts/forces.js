@@ -1,6 +1,6 @@
 import { Vector3, Matrix4 } from 'three';
 import { CycloneVector3, CycloneQuaternion } from './common.js';
-import * as elation from 'elation';
+import elation from 'elation';
 
 /**
  * forces

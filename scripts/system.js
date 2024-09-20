@@ -1,5 +1,5 @@
 import { Vector3, Quaternion } from 'three';
-import * as elation from 'elation';
+import elation from 'elation';
 import { CPUPhysicsProcessor } from './processors/cpu.js';
 
 /**
