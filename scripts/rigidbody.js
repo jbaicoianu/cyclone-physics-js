@@ -2,6 +2,7 @@ import { Vector3, Quaternion, Matrix4 } from 'three';
 import { PhysicsSystem } from './system.js';
 import { CycloneVector3, CycloneQuaternion } from './common.js';
 import { forces } from './forces.js';
+import { constraints } from './constraints.js';
 import { colliders } from './collisions.js';
 import * as elation from 'elation';
 
@@ -259,8 +260,8 @@ export class RigidBody extends EventTarget {
    */
   addConstraint(type, args) {
     let constraint = false;
-    if (typeof elation.physics.constraints[type] == 'function') {
-      constraint = new elation.physics.constraints[type](this, args);
+    if (typeof constraints[type] == 'function') {
+      constraint = new constraints[type](this, args);
       this.constraints.push(constraint);
       //this.updateConstraints();
       this.updateState();
@@ -278,7 +279,7 @@ export class RigidBody extends EventTarget {
     let removes = [];
     if (typeof constraint == 'string') {
       for (let i = 0; i < this.constraints.length; i++) {
-        if (this.constraints[i] instanceof elation.physics.constraints[constraint]) {
+        if (this.constraints[i] instanceof constraints[constraint]) {
           removes.unshift(i);
         }
       }
