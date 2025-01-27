@@ -15,6 +15,9 @@ elation.require(['engine.external.three.three'], function() {
     toJSON() {
       return {x: this._x, y: this._y, z: this._z};
     }
+    clone() {
+      return super.clone();
+    }
   }
   // FIXME - orientation doesn't currently work properly because THREE.Quaternion already uses getters and setters internally
   class CycloneQuaternion extends THREE.Quaternion {
@@ -33,6 +36,9 @@ elation.require(['engine.external.three.three'], function() {
     copy(quat) {
       this.changed = true;
       return super.copy(quat);
+    }
+    clone() {
+      return super.clone();
     }
     set(x, y, z, w) {
       this.changed = true;
