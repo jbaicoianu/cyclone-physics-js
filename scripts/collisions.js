@@ -2163,21 +2163,20 @@ elation.require(['physics.common', 'utils.math'], function() {
       var lastaccel = new THREE.Vector3();
 
       if (this.bodies[0] && !this.bodies[0].state.sleeping) {
-        velocityFromAccel -= .5 * lastaccel.copy(this.bodies[0].lastacceleration).multiplyScalar(duration).dot(this.normal);
+        velocityFromAccel -= lastaccel.copy(this.bodies[0].lastacceleration).multiplyScalar(duration).dot(this.normal);
       }
       if (this.bodies[1] && !this.bodies[1].state.sleeping) {
-        velocityFromAccel += .5 * lastaccel.copy(this.bodies[1].lastacceleration).multiplyScalar(duration).dot(this.normal);
+        velocityFromAccel += lastaccel.copy(this.bodies[1].lastacceleration).multiplyScalar(duration).dot(this.normal);
       }
 
       var restitution = this.restitution;
-/*
-      if (Math.abs(this.velocity.y) < 0.25) { // FIXME - velocity threshold should be configurable
+
+      if (Math.abs(this.velocity.y) < 0.01) { // FIXME - velocity threshold should be configurable
         restitution = 0;
       }
-*/
+
       this.desiredDeltaVelocity = -this.velocity.y - restitution * (this.velocity.y - velocityFromAccel);
       //if (this.desiredDeltaVelocity > 0) this.desiredDeltaVelocity *= -1;
-      //console.log('desiredDeltaV: ' + this.desiredDeltaVelocity);
     }
     this.calculateInternals = function(duration) {
       this.calculateContactMatrix();
