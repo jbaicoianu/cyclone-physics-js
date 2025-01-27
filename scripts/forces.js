@@ -415,6 +415,8 @@ elation.require(['physics.common'], function() {
     var _tmpvec2 = new THREE.Vector3();
 
     this.apply = function() {
+      if (this.disabled) return;
+
       var lws = this.body.localToWorldPos(_tmpvec1.copy(this.connectionpoint));
       var ows = (this.other ? this.other.localToWorldPos(_tmpvec2.copy(this.otherconnectionpoint)) : this.anchor);
 
