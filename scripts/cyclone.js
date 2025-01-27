@@ -7,7 +7,7 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
     this.position = this.positionWorld = new THREE.Vector3();
     this.orientation = this.orientationWorld = new THREE.Quaternion();
     this.scale = this.scaleWorld = new THREE.Vector3(1, 1, 1);
-    this.substep = elation.utils.any(this.args.substep, true);
+    this.substep = false; //elation.utils.any(this.args.substep, true);
     this.substepMaxDelta = elation.utils.any(this.args.substepMaxDelta, 20/1000);
     this.substepMaxSteps = elation.utils.any(this.args.substepMaxSteps, 4);
     this.processortype = elation.utils.any(this.args.processortype, 'cpu');
@@ -39,7 +39,7 @@ elation.require(["physics.common", "physics.processors", "physics.processors.wor
         steps = Math.min(Math.round(t / this.substepMaxDelta), this.substepMaxSteps);
       }
       
-      var step = 0;
+      var step = 1;
       while (t > 0) {
         var steptime = (step < steps ? Math.min(t, this.substepMaxDelta) : t);
 
