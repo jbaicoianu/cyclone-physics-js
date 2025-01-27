@@ -322,7 +322,7 @@ elation.require(['physics.common', 'utils.math'], function() {
       }
     })();
 
-    this.box_box = function() {
+    this.box_box_old = function() {
       // closure scratch variables
       var diff = new THREE.Vector3(),
           thispos = new THREE.Vector3(),
@@ -483,6 +483,234 @@ elation.require(['physics.common', 'utils.math'], function() {
         }
       }
     }();
+
+    this.box_box = (function() {
+      // closure scratch variables
+      const scratch = {
+        axes: Array(15).fill(null).map(() => new THREE.Vector3()),
+        box1Corners: Array(8).fill(null).map(() => new THREE.Vector3()),
+        box2Corners: Array(8).fill(null).map(() => new THREE.Vector3()),
+        box1Projection: { min: 0, max: 0 },
+        box2Projection: { min: 0, max: 0 },
+        tmpVec: new THREE.Vector3(),
+        tmpQuat: new THREE.Quaternion(),
+        contactAxis: new THREE.Vector3(),
+      };
+
+      function getAxesToTest(box1, box2, scratchAxes) {
+        const axes = scratchAxes;
+
+        // Get the three local axes of both boxes in world coordinates
+        const box1Axes = getWorldAxes(box1, axes.slice(0, 3));
+        const box2Axes = getWorldAxes(box2, axes.slice(3, 6));
+
+        // Add cross products of edges (9 cross-product axes)
+        let axesIndex = 6;
+        for (let i = 0; i < 3; i++) {
+          for (let j = 0; j < 3; j++) {
+            const cross = axes[axesIndex].crossVectors(box1Axes[i], box2Axes[j]);
+            if (cross.lengthSq() > 1e-6) {  // Avoid zero vectors
+              cross.normalize();
+            }
+            axesIndex++;
+          }
+        }
+
+        return axes;
+      }
+
+      function getWorldAxes(box, axes) {
+        // The orientationWorld is already in world space
+        axes[0].set(1, 0, 0).applyQuaternion(box.body.orientationWorld);
+        axes[1].set(0, 1, 0).applyQuaternion(box.body.orientationWorld);
+        axes[2].set(0, 0, 1).applyQuaternion(box.body.orientationWorld);
+        return axes;
+      }
+      function getPenetrationOnAxis(box1, box2, axis) {
+        // Project both boxes onto the axis
+        const box1Projection = projectBoxOntoAxis(box1, axis, scratch.box1Corners, scratch.box1Projection);
+        const box2Projection = projectBoxOntoAxis(box2, axis, scratch.box2Corners, scratch.box2Projection);
+
+        // Check if projections overlap
+        const overlap = Math.min(box1Projection.max - box2Projection.min, box2Projection.max - box1Projection.min);
+        if (box1Projection.max < box2Projection.min || box2Projection.max < box1Projection.min) {
+          return false; // Separating axis found
+        }
+
+        return overlap; // Return penetration depth on this axis
+      }
+      function projectBoxOntoAxis(box, axis, corners, projection) {
+        getBoxCorners(box, corners);
+
+        projection.min = Infinity;
+        projection.max = -Infinity;
+
+        for (let corner of corners) {
+          const proj = corner.dot(axis);
+          projection.min = Math.min(projection.min, proj);
+          projection.max = Math.max(projection.max, proj);
+        }
+
+        return projection;
+      }
+      function getBoxCorners(box, corners) {
+        const halfSize = box.halfsize;
+        const offset = box.offset;
+
+        const scale = box.body.localToWorldScale(scratch.tmpVec.set(1,1,1));
+
+        // Define the eight corners of the box in local space
+        corners[0].set(halfSize.x, halfSize.y, halfSize.z).add(offset).divide(scale);
+        corners[1].set(halfSize.x, halfSize.y, -halfSize.z).add(offset).divide(scale);
+        corners[2].set(halfSize.x, -halfSize.y, halfSize.z).add(offset).divide(scale);
+        corners[3].set(halfSize.x, -halfSize.y, -halfSize.z).add(offset).divide(scale);
+        corners[4].set(-halfSize.x, halfSize.y, halfSize.z).add(offset).divide(scale);
+        corners[5].set(-halfSize.x, halfSize.y, -halfSize.z).add(offset).divide(scale);
+        corners[6].set(-halfSize.x, -halfSize.y, halfSize.z).add(offset).divide(scale);
+        corners[7].set(-halfSize.x, -halfSize.y, -halfSize.z).add(offset).divide(scale);
+
+        // Convert local corners to world space using localToWorld
+        for (let i = 0; i < 8; i++) {
+          box.body.localToWorldPos(corners[i]);
+        }
+
+        return corners;
+      }
+      function generateContacts(box1, box2, minPenetration, contactAxis, contacts) {
+        // The contact normal is the axis of minimum penetration
+        const contactNormal = contactAxis.clone().normalize();
+
+        // Find the closest points on the surface of both boxes
+        const box1Corners = getBoxCorners(box1, scratch.box1Corners);
+        const box2Corners = getBoxCorners(box2, scratch.box2Corners);
+
+        //const box1Closest = findClosestPointOnBox(box1Corners, contactNormal);
+        //const box2Closest = findClosestPointOnBox(box2Corners, contactNormal.clone().negate());
+        const box1Closest = findClosestPointOnFace(box1Corners, box2, contactNormal);
+        const box2Closest = findClosestPointOnFace(box2Corners, box1, contactNormal);
+
+        // Contact point is the midpoint between closest points on both boxes
+        const contactPoint = box1Closest.clone().add(box2Closest).multiplyScalar(0.5);
+
+        // Create the contact
+        const contact = new elation.physics.contact({
+          normal: contactNormal,
+          point: contactPoint.clone(),
+          penetration: 0, //-minPenetration, // negative value as it's penetration
+          //penetration: box1Closest.distanceTo(box2Closest),
+          bodies: [box1.body, box2.body]
+        });
+
+        contacts.push(contact);
+        return contacts;
+      }
+      function findClosestPointOnBox(corners, normal) {
+        let closestPoint = corners[0];
+        let minDistance = closestPoint.dot(normal);
+
+        for (let i = 1; i < corners.length; i++) {
+          const dist = corners[i].dot(normal);
+          if (dist < minDistance) {
+            closestPoint = corners[i];
+            minDistance = dist;
+          }
+        }
+        return closestPoint;
+      }
+      function findClosestPointOnFace(corners, otherBox, normal) {
+        let closestPoint = null;
+        let minDistance = Infinity;
+
+        // Check the projection of each corner onto the face of the other box
+        for (let i = 0; i < corners.length; i++) {
+          const corner = corners[i];
+          const projectedPoint = projectPointOntoFace(corner, otherBox, normal);
+
+          const distance = corner.distanceTo(projectedPoint);
+          if (distance < minDistance) {
+            closestPoint = projectedPoint;
+            minDistance = distance;
+          }
+        }
+
+        return closestPoint;
+      }
+
+      function projectPointOntoFace(point, box, normal) {
+        // First, find the center of the box in world space
+        const boxCenter = new THREE.Vector3();
+        box.body.localToWorldPos(boxCenter.set(0, 0, 0));
+
+        // Determine the plane of the face by using the box's normal and a point on the plane
+        // (the center of the face, which is aligned with one of the box's axes)
+        const halfSize = box.halfsize;
+        const offset = new THREE.Vector3().addVectors(box.min, box.max).multiplyScalar(.5);
+        const planePoint = new THREE.Vector3();
+        const planeNormal = normal.clone().normalize(); // Normal of the face (aligned with one of the box's axes)
+
+        // We need to determine which face we're projecting onto, so find the direction along the normal
+        // Set the point on the plane (face center) by adding/subtracting half the box size along the normal
+        for (let i = 0; i < 3; i++) {
+            const axisValue = planeNormal.getComponent(i);
+            if (axisValue !== 0) {
+                planePoint.setComponent(i, boxCenter.getComponent(i) + (axisValue * halfSize.getComponent(i)));
+            }
+        }
+
+        // Now, we project the point onto the plane
+        // To do that, find the vector from the point to the plane point
+        const pointToPlane = point.clone().sub(planePoint);
+
+        // Project this vector onto the normal to find how far away the point is from the plane
+        const distance = pointToPlane.dot(planeNormal);
+
+        // Move the point onto the plane by subtracting the distance along the normal
+        const projectedPoint = point.clone().sub(planeNormal.multiplyScalar(distance));
+
+        // Now we need to clamp the projected point to the bounds of the box face
+        // For each axis, clamp the value within the bounds of the face
+        for (let i = 0; i < 3; i++) {
+            const axisValue = planeNormal.getComponent(i);
+            if (axisValue === 0) {
+                // Clamp the coordinate to be within the face bounds (which are defined by the box size)
+                const minVal = boxCenter.getComponent(i) - halfSize.getComponent(i);
+                const maxVal = boxCenter.getComponent(i) + halfSize.getComponent(i);
+                const value = projectedPoint.getComponent(i);
+                projectedPoint.setComponent(i, Math.max(minVal, Math.min(value, maxVal)));
+            }
+        }
+
+        return projectedPoint.add(offset);
+
+      }
+
+
+
+      return function(box1, box2, contacts, dt) {
+        const axes = getAxesToTest(box1, box2, scratch.axes);
+        let hasCollision = true;
+        let minPenetration = Infinity;
+
+        // Check for overlap along each axis
+        for (let axis of axes) {
+          const overlap = getPenetrationOnAxis(box1, box2, axis);
+          if (overlap === false) {
+            hasCollision = false; // Separating axis found, no collision
+            break;
+          } else if (overlap < minPenetration) {
+            minPenetration = overlap; // Track the minimum penetration
+            scratch.contactAxis.copy(axis);  // Store the axis with minimum penetration
+          }
+        }
+
+        if (!hasCollision) {
+          return false;
+        }
+
+        // If colliding, generate contact points and return them
+        return generateContacts(box1, box2, minPenetration, scratch.contactAxis, contacts);
+      }
+    })();
 
     /* cylinder helpers */
     this.cylinder_sphere = function() {
