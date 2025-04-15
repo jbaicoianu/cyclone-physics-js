@@ -82,7 +82,6 @@ elation.require(['physics.common'], function() {
     this.updateAcceleration = function(framedata) {
       this.lastacceleration.copy(this.acceleration);
       if (this.forces.length > 0) {
-        this.clearAccumulators();
         for (var k in this.forces) {
           this.forces[k].apply(framedata); // FIXME - electrostatic force is the only one which uses this, as a way to cache results across objects each frame. Should evaluate alternate ways of doing that
         }
@@ -92,6 +91,7 @@ elation.require(['physics.common'], function() {
         }
       }
       this.updateState();
+      this.clearAccumulators();
       //console.log([this.acceleration.x, this.acceleration.y, this.acceleration.z], [this.angularacceleration.x, this.angularacceleration.y, this.angularacceleration.z]);
     }
     this.applyForce = function(force, relative) {
