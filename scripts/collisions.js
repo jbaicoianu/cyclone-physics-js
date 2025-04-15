@@ -1029,7 +1029,7 @@ elation.require(['physics.common', 'utils.math'], function() {
       // Reference: http://www.peroxide.dk/papers/collision/collision.pdf
 
       return function(triangle, sphere, contacts, dt) {
-        const spherepos = sphere.body.position;
+        const spherepos = sphere.body.positionWorld;
         const spherevel = sphere.body.velocity;
         const worldpoints = triangle.getWorldPoints();
         const p1 = worldpoints.p1,
@@ -1040,8 +1040,8 @@ elation.require(['physics.common', 'utils.math'], function() {
         let velNormal = spherevel.dot(normal);
 
         // Check if we're already in contact
-        elation.physics.colliders.helperfuncs.closest_point_on_triangle(spherepos, p1, p2, p3, triangleClosestPoint);
-        let triangleDistSquared = triangleClosestPoint.distanceToSquared(spherepos)
+        elation.physics.colliders.helperfuncs.closest_point_on_triangle(sphere.body.positionWorld, p1, p2, p3, triangleClosestPoint);
+        let triangleDistSquared = triangleClosestPoint.distanceToSquared(sphere.body.positionWorld)
         if (triangleDistSquared < sphere.radius * sphere.radius && velNormal <= 0) {
           let contact = new elation.physics.contact({
             normal: normal.clone(), // allocate normal
@@ -1151,6 +1151,8 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         const capsuleDims = capsule.getDimensions();
         capsuleNormal.subVectors(capsuleDims.end, capsuleDims.start).normalize();
+        localSphere.position.copy(capsule.body.position);
+        localSphere.positionWorld.copy(capsule.body.positionWorld);
 
         const worldpoints = triangle.getWorldPoints();
         const p1 = worldpoints.p1,
@@ -1164,13 +1166,16 @@ elation.require(['physics.common', 'utils.math'], function() {
         elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, closestPoint);
         elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, closestPoint, localSphere.position);
 
+        localSphere.positionWorld.copy(localSphere.position);
+
         // Perform a sphere/triangle intersection test with our sphere
         if (!localSphere.collider) {
-            localSphere.setCollider('sphere', { radius: 1 });
+            localSphere.setCollider('sphere', { radius: capsule.radius * 2});
         } else {
-          localSphere.collider.radius = capsule.radius;
+          localSphere.collider.radius = capsule.radius * 2;
         }
         localSphere.orientation.copy(capsule.body.orientation);
+        localSphere.orientationWorld.copy(capsule.body.orientationWorld);
         localSphere.velocity.copy(capsule.body.velocity);
         let localcontacts = [];
         elation.physics.colliders.helperfuncs.triangle_sphere(triangle, localSphere.collider, localcontacts, dt);
@@ -1237,7 +1242,6 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         elation.physics.colliders.helperfuncs.capsule_sphere(capsule, mesh.boundingSphere, spherecontacts, dt);
         if (spherecontacts.length == 0) return;
-
 
         let capsulepos = capsule.body.positionWorld,
             capsuleMaxDist = Math.pow(capsule.length + capsule.radius, 2);
