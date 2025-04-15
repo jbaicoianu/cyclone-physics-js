@@ -22,7 +22,7 @@ elation.require(['physics.common', 'utils.math'], function() {
         obj1.body.localToWorldPos(thispos.set(0,0,0));
         obj2.body.localToWorldPos(otherpos.set(0,0,0));
 
-        let dynamic = true; // TODO - this should either be a flag on rigid bodies, or a configurable threshold based on velocity
+        let dynamic = (obj1.body.velocity.lengthSq() > 0 || obj2.body.velocity.lengthSq() > 0); // TODO - this should either be a flag on rigid bodies, or a configurable threshold based on velocity
         if (!dynamic) {
           midline.subVectors(otherpos, thispos),
           size = midline.length();
