@@ -110,60 +110,69 @@ elation.require(['physics.common', 'utils.math'], function() {
 
     this.box_sphere = function() {
       // closure scratch variables
-      var center = new THREE.Vector3(),      // center of sphere, box-space coordinates
+      var center = new THREE.Vector3(),      // center of sphere, box-space coordinates (scaled)
           centerWorld = new THREE.Vector3(), // center of sphere, world-space coordinates
           diff = new THREE.Vector3(),
           closest = new THREE.Vector3(),
-          scale = new THREE.Vector3(),
-          scaledmin = new THREE.Vector3(),
-          scaledmax = new THREE.Vector3();
+          closestWorld = new THREE.Vector3(),
+          invQuat = new THREE.Quaternion();
 
       return function(box, sphere, contacts, dt) {
         if (!contacts) contacts = [];
 
-        // Get sphere position in world and in the box's coordinate space
+        // Get sphere position in world space
         if (sphere.offset) {
           sphere.body.localToWorldPos(centerWorld.copy(sphere.offset));
         } else {
           sphere.body.localToWorldPos(centerWorld.set(0,0,0));
         }
-        box.body.worldToLocalPos(center.copy(centerWorld));
-        box.body.worldToLocalScale(scale.set(1,1,1));
 
-        scaledmin.copy(scale).multiply(box.min);
-        scaledmax.copy(scale).multiply(box.max);
+        // Transform sphere center to box's SCALED local space
+        // (subtract position, apply inverse rotation, but do NOT divide by scale)
+        // This matches the coordinate system of box.min/max which are pre-scaled
+        center.copy(centerWorld).sub(box.body.position);
+        if (box.body.orientation) {
+          invQuat.copy(box.body.orientation).invert();
+          center.applyQuaternion(invQuat);
+        }
+
+        // box.min/max are already in scaled local space, and so is center now
+        // sphere.radius is in world units which matches scaled local space
 
         // Early out if any of the axes are separating
-        if ((center.x + sphere.radius < scaledmin.x || center.x - sphere.radius > scaledmax.x) ||
-            (center.y + sphere.radius < scaledmin.y || center.y - sphere.radius > scaledmax.y) ||
-            (center.z + sphere.radius < scaledmin.z || center.z - sphere.radius > scaledmax.z)) {
+        if ((center.x + sphere.radius < box.min.x || center.x - sphere.radius > box.max.x) ||
+            (center.y + sphere.radius < box.min.y || center.y - sphere.radius > box.max.y) ||
+            (center.z + sphere.radius < box.min.z || center.z - sphere.radius > box.max.z)) {
           return false;
         }
 
-        // Find closest point on box
-        closest.x = elation.utils.math.clamp(center.x, scaledmin.x, scaledmax.x);
-        closest.y = elation.utils.math.clamp(center.y, scaledmin.y, scaledmax.y);
-        closest.z = elation.utils.math.clamp(center.z, scaledmin.z, scaledmax.z);
+        // Find closest point on box (in scaled local space)
+        closest.x = elation.utils.math.clamp(center.x, box.min.x, box.max.x);
+        closest.y = elation.utils.math.clamp(center.y, box.min.y, box.max.y);
+        closest.z = elation.utils.math.clamp(center.z, box.min.z, box.max.z);
 
-        // See if we're in contact
+        // Check distance (all in scaled local space = world units)
         diff.subVectors(closest, center);
         var dist = diff.lengthSq();
         if (dist > sphere.radius * sphere.radius) {
           return 0;
         }
-  //console.log('BOING', closest.toArray(), center.toArray(), diff.toArray(), dist, sphere.radius);
 
-        // Transform back to world space
-        box.body.localToWorldPos(closest);
+        // Transform closest point back to world space
+        closestWorld.copy(closest);
+        if (box.body.orientation) {
+          closestWorld.applyQuaternion(box.body.orientation);
+        }
+        closestWorld.add(box.body.position);
 
         var contact = new elation.physics.contact({
-          point: closest.clone(), // allocate point
-          normal: centerWorld.clone().sub(closest).normalize(), // allocate normal
+          point: closestWorld.clone(), // allocate point
+          normal: centerWorld.clone().sub(closestWorld).normalize(), // allocate normal
           penetration: -(sphere.radius - Math.sqrt(dist)),
           bodies: [box.body, sphere.body]
         });
         contacts.push(contact);
-        
+
         return contacts;
       }
     }();
