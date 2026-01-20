@@ -405,16 +405,22 @@ elation.require(['physics.common'], function() {
     this.other = args.other || false;
     this.anchor = args.anchor || false;
     this.strength = elation.utils.any(args.strength, 1);
+    this.damping = elation.utils.any(args.damping, 0);  // Damping coefficient (Ns/m)
     this.midpoint = args.midpoint || false;
     this.restlength = elation.utils.any(args.restlength, 0);
     this.bungee = args.bungee || false;
     this.hard = args.hard || false;
     this.force = new THREE.Vector3();
 
+    // Damping state
+    this.prevLength = null;
+    this.dampingInitialized = false;
+
     var _tmpvec1 = new THREE.Vector3();
     var _tmpvec2 = new THREE.Vector3();
+    var _tmpvec3 = new THREE.Vector3();  // For spring direction in damping calculation
 
-    this.apply = function() {
+    this.apply = function(framedata) {
       if (this.disabled) return;
 
       var lws = this.body.localToWorldPos(_tmpvec1.copy(this.connectionpoint));
@@ -424,18 +430,40 @@ elation.require(['physics.common'], function() {
       if (this.midpoint) {
         this.force.divideScalar(2);
       }
-      //var magnitude = Math.abs(this.force.length() - this.restlength) * this.strength;
-      var magnitude = this.force.length() + 1e-5;
-      if (this.bungee && magnitude <= this.restlength) {
+      var currentLength = this.force.length() + 1e-5;
+
+      // Initialize prevLength on first frame
+      if (!this.dampingInitialized) {
+        this.prevLength = currentLength;
+        this.dampingInitialized = true;
+      }
+
+      if (this.bungee && currentLength <= this.restlength) {
         this.force.set(0,0,0);
-      } else if (this.hard && magnitude <= this.restlength) {
+      } else if (this.hard && currentLength <= this.restlength) {
         this.force.set(0,0,0);
       } else {
-        this.force.divideScalar(magnitude);
-        magnitude = this.strength * (magnitude - this.restlength);
-        this.force.multiplyScalar(-magnitude);
+        // Unit vector along spring direction
+        var springDirection = _tmpvec3.copy(this.force).divideScalar(currentLength);
+
+        // Spring force: F = -k * (length - restlength)
+        var springMagnitude = this.strength * (currentLength - this.restlength);
+        this.force.copy(springDirection).multiplyScalar(-springMagnitude);
+
+        // Damping force: F = -c * velocity
+        if (this.damping > 0 && framedata && framedata.dt > 0) {
+          // Compression velocity in m/s (positive = extending, negative = compressing)
+          var compressionVel = (currentLength - this.prevLength) / framedata.dt;
+          // Damping force opposes velocity
+          var dampingMagnitude = -this.damping * compressionVel;
+          this.force.addScaledVector(springDirection, dampingMagnitude);
+        }
+
+        // Store current length for next frame's damping calculation
+        this.prevLength = currentLength;
+
         this.force = this.body.worldToLocalDir(this.force);
-        
+
         this.body.applyForceAtPoint(this.force, this.connectionpoint, true);
         if (this.other && this.other.mass) {
           this.other.applyForceAtPoint(this.force.multiplyScalar(-1), this.otherconnectionpoint, true);
@@ -462,6 +490,7 @@ elation.require(['physics.common'], function() {
         other: this.other,
         anchor: this.anchor,
         strength: this.strength,
+        damping: this.damping,
         midpoint: this.midpoint,
         restlength: this.restlength,
         bungee: this.bungee,
