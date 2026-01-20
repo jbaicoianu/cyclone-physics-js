@@ -4,7 +4,7 @@ elation.require(['physics.processors'], function() {
     this.iterateVelocities = function(objects, t) {
       if (t == 0) return; // paused, do nothing
       for (var i = 0; i < objects.length; i++) {
-        objects[i].updateAcceleration();
+        objects[i].updateAcceleration({dt: t});
         let scaledtime = objects[i].getTimescale() * t;
         if (objects[i].state.accelerating || objects[i].state.moving) {
           let obj = objects[i],
