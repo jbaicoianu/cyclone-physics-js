@@ -312,19 +312,20 @@ elation.require(['physics.common', 'utils.math'], function() {
       const closest = new THREE.Vector3();
       return function(vertex, capsule) {
         let capsuleDims = capsule.getDimensions();
+        let scaledRadius = capsuleDims.scaledRadius;
         elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, vertex, closest);
         let distSq = closest.distanceToSquared(vertex);
-        if (distSq <= capsule.radius * capsule.radius) {
+        if (distSq <= scaledRadius * scaledRadius) {
           let dist = Math.sqrt(distSq);
           let normal = closest.clone().sub(vertex).divideScalar(dist);
           let point = closest.clone();
-          point.x += normal.x * capsule.radius;
-          point.y += normal.y * capsule.radius;
-          point.z += normal.z * capsule.radius;
+          point.x += normal.x * scaledRadius;
+          point.y += normal.y * scaledRadius;
+          point.z += normal.z * scaledRadius;
           let contact = new elation.physics.contact({
             normal: normal,
             point: point,
-            penetration: dist - capsule.radius,
+            penetration: dist - scaledRadius,
           });
           return contact;
         }
@@ -494,232 +495,642 @@ elation.require(['physics.common', 'utils.math'], function() {
     }();
 
     this.box_box = (function() {
-      // closure scratch variables
-      const scratch = {
-        axes: Array(15).fill(null).map(() => new THREE.Vector3()),
-        box1Corners: Array(8).fill(null).map(() => new THREE.Vector3()),
-        box2Corners: Array(8).fill(null).map(() => new THREE.Vector3()),
-        box1Projection: { min: 0, max: 0 },
-        box2Projection: { min: 0, max: 0 },
-        tmpVec: new THREE.Vector3(),
-        tmpQuat: new THREE.Quaternion(),
-        contactAxis: new THREE.Vector3(),
-      };
+      // closure scratch variables - reused to avoid per-frame allocations
+      var box1Axes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      var box2Axes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      var crossAxis = new THREE.Vector3();
+      var diff = new THREE.Vector3();
+      var box1Center = new THREE.Vector3();
+      var box2Center = new THREE.Vector3();
+      var contactNormal = new THREE.Vector3();
+      var contactPoint = new THREE.Vector3();
+      var tmpVec = new THREE.Vector3();
+      var tmpVec2 = new THREE.Vector3();
+      var edge1Point = new THREE.Vector3();
+      var edge2Point = new THREE.Vector3();
+      var closestOnEdge1 = new THREE.Vector3();
+      var closestOnEdge2 = new THREE.Vector3();
+      // Reusable projection results to avoid allocation
+      var proj1 = { min: 0, max: 0 };
+      var proj2 = { min: 0, max: 0 };
 
-      function getAxesToTest(box1, box2, scratchAxes) {
-        const axes = scratchAxes;
-
-        // Get the three local axes of both boxes in world coordinates
-        const box1Axes = getWorldAxes(box1, axes.slice(0, 3));
-        const box2Axes = getWorldAxes(box2, axes.slice(3, 6));
-
-        // Add cross products of edges (9 cross-product axes)
-        let axesIndex = 6;
-        for (let i = 0; i < 3; i++) {
-          for (let j = 0; j < 3; j++) {
-            const cross = axes[axesIndex].crossVectors(box1Axes[i], box2Axes[j]);
-            if (cross.lengthSq() > 1e-6) {  // Avoid zero vectors
-              cross.normalize();
-            }
-            axesIndex++;
-          }
-        }
-
-        return axes;
-      }
-
+      // Get world-space axes for a box using orientationWorld for hierarchy support
       function getWorldAxes(box, axes) {
-        // The orientationWorld is already in world space
-        axes[0].set(1, 0, 0).applyQuaternion(box.body.orientationWorld);
-        axes[1].set(0, 1, 0).applyQuaternion(box.body.orientationWorld);
-        axes[2].set(0, 0, 1).applyQuaternion(box.body.orientationWorld);
+        var orient = box.body.orientationWorld || box.body.orientation;
+        axes[0].set(1, 0, 0).applyQuaternion(orient);
+        axes[1].set(0, 1, 0).applyQuaternion(orient);
+        axes[2].set(0, 0, 1).applyQuaternion(orient);
         return axes;
       }
-      function getPenetrationOnAxis(box1, box2, axis) {
-        // Project both boxes onto the axis
-        const box1Projection = projectBoxOntoAxis(box1, axis, scratch.box1Corners, scratch.box1Projection);
-        const box2Projection = projectBoxOntoAxis(box2, axis, scratch.box2Corners, scratch.box2Projection);
 
-        // Check if projections overlap
-        const overlap = Math.min(box1Projection.max - box2Projection.min, box2Projection.max - box1Projection.min);
-        if (box1Projection.max < box2Projection.min || box2Projection.max < box1Projection.min) {
+      // Get box center in world space
+      function getBoxCenter(box, out) {
+        // For standard physics bodies, position IS the center
+        // If there's an offset in box.min/max, account for it
+        out.addVectors(box.min, box.max).multiplyScalar(0.5);
+        if (out.lengthSq() > 0) {
+          // There's an offset - transform it to world space
+          var orient = box.body.orientationWorld || box.body.orientation;
+          out.applyQuaternion(orient);
+        }
+        out.add(box.body.position);
+        return out;
+      }
+
+      // Project box onto axis, storing result in outProj to avoid allocation
+      function projectBox(box, boxCenter, boxAxes, axis, outProj) {
+        var halfExtents = box.halfsize; // pre-scaled
+        var centerProj = boxCenter.dot(axis);
+
+        // Project each axis extent onto the test axis
+        var extent =
+          halfExtents.x * Math.abs(boxAxes[0].dot(axis)) +
+          halfExtents.y * Math.abs(boxAxes[1].dot(axis)) +
+          halfExtents.z * Math.abs(boxAxes[2].dot(axis));
+
+        outProj.min = centerProj - extent;
+        outProj.max = centerProj + extent;
+      }
+
+      // Test overlap on a single axis, return penetration or false if separating
+      function testAxis(box1, box2, box1Center, box2Center, box1Axes, box2Axes, axis) {
+        // Skip degenerate axes (near-zero length from parallel edges)
+        var lenSq = axis.lengthSq();
+        if (lenSq < 1e-8) return Infinity; // Treat as non-separating
+
+        // Normalize the axis
+        var invLen = 1 / Math.sqrt(lenSq);
+        axis.x *= invLen;
+        axis.y *= invLen;
+        axis.z *= invLen;
+
+        projectBox(box1, box1Center, box1Axes, axis, proj1);
+        projectBox(box2, box2Center, box2Axes, axis, proj2);
+
+        // Check for separation
+        if (proj1.max < proj2.min || proj2.max < proj1.min) {
           return false; // Separating axis found
         }
 
-        return overlap; // Return penetration depth on this axis
+        // Return overlap amount
+        return Math.min(proj1.max - proj2.min, proj2.max - proj1.min);
       }
-      function projectBoxOntoAxis(box, axis, corners, projection) {
-        getBoxCorners(box, corners);
 
-        projection.min = Infinity;
-        projection.max = -Infinity;
+      // Find closest points between two line segments
+      // Returns parameter t for point on segment 1: P1 + t * D1
+      function closestPointsOnSegments(p1, d1, halfLen1, p2, d2, halfLen2, outPoint1, outPoint2) {
+        // Direction from p1 to p2
+        tmpVec2.subVectors(p2, p1);
 
-        for (let corner of corners) {
-          const proj = corner.dot(axis);
-          projection.min = Math.min(projection.min, proj);
-          projection.max = Math.max(projection.max, proj);
+        var d1d1 = d1.dot(d1);
+        var d2d2 = d2.dot(d2);
+        var d1d2 = d1.dot(d2);
+        var d1r = d1.dot(tmpVec2);
+        var d2r = d2.dot(tmpVec2);
+
+        var denom = d1d1 * d2d2 - d1d2 * d1d2;
+
+        var t, s;
+        if (Math.abs(denom) < 1e-8) {
+          // Parallel segments - use midpoint
+          t = 0;
+          s = d2r / d2d2;
+        } else {
+          t = (d1d2 * d2r - d2d2 * d1r) / denom;
+          s = (d1d1 * d2r - d1d2 * d1r) / denom;
         }
 
-        return projection;
+        // Clamp to segment bounds
+        t = Math.max(-halfLen1, Math.min(halfLen1, t));
+        s = Math.max(-halfLen2, Math.min(halfLen2, s));
+
+        // Compute closest points
+        outPoint1.copy(d1).multiplyScalar(t).add(p1);
+        outPoint2.copy(d2).multiplyScalar(s).add(p2);
       }
-      function getBoxCorners(box, corners) {
-        const halfSize = box.halfsize;
-        const offset = box.offset;
 
-        const scale = box.body.localToWorldScale(scratch.tmpVec.set(1,1,1));
+      // Get edge center and direction for a box edge
+      // edgeAxisIndex: which axis the edge runs along (0=X, 1=Y, 2=Z)
+      // signs: which quadrant of the perpendicular plane (-1 or +1 for each of the other two axes)
+      function getBoxEdge(boxCenter, boxAxes, halfsize, edgeAxisIndex, sign1, sign2, outPoint, outDir, outHalfLen) {
+        var ax1 = (edgeAxisIndex + 1) % 3;
+        var ax2 = (edgeAxisIndex + 2) % 3;
+        var hs = [halfsize.x, halfsize.y, halfsize.z];
 
-        // Define the eight corners of the box in local space
-        corners[0].set(halfSize.x, halfSize.y, halfSize.z).add(offset).divide(scale);
-        corners[1].set(halfSize.x, halfSize.y, -halfSize.z).add(offset).divide(scale);
-        corners[2].set(halfSize.x, -halfSize.y, halfSize.z).add(offset).divide(scale);
-        corners[3].set(halfSize.x, -halfSize.y, -halfSize.z).add(offset).divide(scale);
-        corners[4].set(-halfSize.x, halfSize.y, halfSize.z).add(offset).divide(scale);
-        corners[5].set(-halfSize.x, halfSize.y, -halfSize.z).add(offset).divide(scale);
-        corners[6].set(-halfSize.x, -halfSize.y, halfSize.z).add(offset).divide(scale);
-        corners[7].set(-halfSize.x, -halfSize.y, -halfSize.z).add(offset).divide(scale);
+        outPoint.copy(boxCenter);
+        outPoint.addScaledVector(boxAxes[ax1], sign1 * hs[ax1]);
+        outPoint.addScaledVector(boxAxes[ax2], sign2 * hs[ax2]);
 
-        // Convert local corners to world space using localToWorld
-        for (let i = 0; i < 8; i++) {
-          box.body.localToWorldPos(corners[i]);
+        outDir.copy(boxAxes[edgeAxisIndex]);
+        return hs[edgeAxisIndex]; // half-length along edge
+      }
+
+      return function(box1, box2, contacts, dt) {
+        if (!contacts) contacts = [];
+
+        // Get box centers and axes in world space
+        getBoxCenter(box1, box1Center);
+        getBoxCenter(box2, box2Center);
+        getWorldAxes(box1, box1Axes);
+        getWorldAxes(box2, box2Axes);
+
+        // Vector from box1 center to box2 center
+        diff.subVectors(box2Center, box1Center);
+
+        var minPenetration = Infinity;
+        var minAxisIndex = -1;
+        var penetration;
+
+        // Test box1's 3 face axes
+        for (var i = 0; i < 3; i++) {
+          penetration = testAxis(box1, box2, box1Center, box2Center, box1Axes, box2Axes,
+                                  tmpVec.copy(box1Axes[i]));
+          if (penetration === false) return false;
+          if (penetration < minPenetration) {
+            minPenetration = penetration;
+            minAxisIndex = i;
+            contactNormal.copy(tmpVec);
+          }
         }
 
-        return corners;
-      }
-      function generateContacts(box1, box2, minPenetration, contactAxis, contacts) {
-        // The contact normal is the axis of minimum penetration
-        const contactNormal = contactAxis.clone().normalize();
+        // Test box2's 3 face axes
+        for (var i = 0; i < 3; i++) {
+          penetration = testAxis(box1, box2, box1Center, box2Center, box1Axes, box2Axes,
+                                  tmpVec.copy(box2Axes[i]));
+          if (penetration === false) return false;
+          if (penetration < minPenetration) {
+            minPenetration = penetration;
+            minAxisIndex = 3 + i;
+            contactNormal.copy(tmpVec);
+          }
+        }
 
-        // Find the closest points on the surface of both boxes
-        const box1Corners = getBoxCorners(box1, scratch.box1Corners);
-        const box2Corners = getBoxCorners(box2, scratch.box2Corners);
+        // Test 9 edge-edge cross product axes
+        for (var i = 0; i < 3; i++) {
+          for (var j = 0; j < 3; j++) {
+            crossAxis.crossVectors(box1Axes[i], box2Axes[j]);
+            penetration = testAxis(box1, box2, box1Center, box2Center, box1Axes, box2Axes,
+                                    tmpVec.copy(crossAxis));
+            if (penetration === false) return false;
+            if (penetration < minPenetration) {
+              minPenetration = penetration;
+              minAxisIndex = 6 + i * 3 + j;
+              contactNormal.copy(tmpVec);
+            }
+          }
+        }
 
-        //const box1Closest = findClosestPointOnBox(box1Corners, contactNormal);
-        //const box2Closest = findClosestPointOnBox(box2Corners, contactNormal.clone().negate());
-        const box1Closest = findClosestPointOnFace(box1Corners, box2, contactNormal);
-        const box2Closest = findClosestPointOnFace(box2Corners, box1, contactNormal);
+        // Ensure normal points from box1 to box2
+        if (contactNormal.dot(diff) < 0) {
+          contactNormal.negate();
+        }
 
-        // Contact point is the midpoint between closest points on both boxes
-        const contactPoint = box1Closest.clone().add(box2Closest).multiplyScalar(0.5);
+        // Calculate contact point based on collision type
+        if (minAxisIndex < 6) {
+          // Face-face or face-vertex contact (axes 0-5 are face normals)
+          // Contact point: project other box's center onto the contact face, clamped to face bounds
+          // Then offset by half penetration into the contact
 
-        // Create the contact
-        const contact = new elation.physics.contact({
-          normal: contactNormal,
+          // Get the face normal axis index (0-2 for the face box)
+          var faceAxisIndex, faceBox, faceCenter, faceAxes, faceHalfsize, otherCenter;
+          if (minAxisIndex < 3) {
+            // box1's face
+            faceAxisIndex = minAxisIndex;
+            faceBox = box1;
+            faceCenter = box1Center;
+            faceAxes = box1Axes;
+            faceHalfsize = box1.halfsize;
+            otherCenter = box2Center;
+          } else {
+            // box2's face
+            faceAxisIndex = minAxisIndex - 3;
+            faceBox = box2;
+            faceCenter = box2Center;
+            faceAxes = box2Axes;
+            faceHalfsize = box2.halfsize;
+            otherCenter = box1Center;
+          }
+
+          // The two tangent axis indices (perpendicular to face normal)
+          var tangent1 = (faceAxisIndex + 1) % 3;
+          var tangent2 = (faceAxisIndex + 2) % 3;
+
+          // Project other box's center onto the face plane
+          // First, get vector from face center to other center
+          tmpVec.subVectors(otherCenter, faceCenter);
+
+          // Project onto the face's tangent axes (not the normal) and clamp to face bounds
+          var hs = [faceHalfsize.x, faceHalfsize.y, faceHalfsize.z];
+
+          // Start at face center, offset by face normal to reach the face surface
+          var normalSign = tmpVec.dot(faceAxes[faceAxisIndex]) > 0 ? 1 : -1;
+          contactPoint.copy(faceCenter);
+          contactPoint.addScaledVector(faceAxes[faceAxisIndex], normalSign * hs[faceAxisIndex]);
+
+          // Project onto the two tangent axes and clamp
+          var proj1 = tmpVec.dot(faceAxes[tangent1]);
+          proj1 = Math.max(-hs[tangent1], Math.min(hs[tangent1], proj1));
+          contactPoint.addScaledVector(faceAxes[tangent1], proj1);
+
+          var proj2 = tmpVec.dot(faceAxes[tangent2]);
+          proj2 = Math.max(-hs[tangent2], Math.min(hs[tangent2], proj2));
+          contactPoint.addScaledVector(faceAxes[tangent2], proj2);
+
+          // Move contact point to midway through penetration (into the face)
+          contactPoint.addScaledVector(contactNormal, -minPenetration * 0.5);
+
+        } else {
+          // Edge-edge contact (axes 6-14 are cross products)
+          // Find the two edges and compute closest points
+
+          var edgeIndex = minAxisIndex - 6;
+          var edge1Axis = Math.floor(edgeIndex / 3); // 0, 1, or 2
+          var edge2Axis = edgeIndex % 3;             // 0, 1, or 2
+
+          // Determine which of the 4 parallel edges on each box to use
+          // Pick the edges closest to each other
+          var hs1 = [box1.halfsize.x, box1.halfsize.y, box1.halfsize.z];
+          var hs2 = [box2.halfsize.x, box2.halfsize.y, box2.halfsize.z];
+
+          // For edge on box1 along axis edge1Axis, the other two axes determine position
+          var ax1_1 = (edge1Axis + 1) % 3;
+          var ax1_2 = (edge1Axis + 2) % 3;
+          var sign1_1 = diff.dot(box1Axes[ax1_1]) > 0 ? 1 : -1;
+          var sign1_2 = diff.dot(box1Axes[ax1_2]) > 0 ? 1 : -1;
+
+          // For edge on box2 along axis edge2Axis
+          var ax2_1 = (edge2Axis + 1) % 3;
+          var ax2_2 = (edge2Axis + 2) % 3;
+          var sign2_1 = diff.dot(box2Axes[ax2_1]) < 0 ? 1 : -1;
+          var sign2_2 = diff.dot(box2Axes[ax2_2]) < 0 ? 1 : -1;
+
+          // Get edge 1 (on box1)
+          edge1Point.copy(box1Center);
+          edge1Point.addScaledVector(box1Axes[ax1_1], sign1_1 * hs1[ax1_1]);
+          edge1Point.addScaledVector(box1Axes[ax1_2], sign1_2 * hs1[ax1_2]);
+          var halfLen1 = hs1[edge1Axis];
+
+          // Get edge 2 (on box2)
+          edge2Point.copy(box2Center);
+          edge2Point.addScaledVector(box2Axes[ax2_1], sign2_1 * hs2[ax2_1]);
+          edge2Point.addScaledVector(box2Axes[ax2_2], sign2_2 * hs2[ax2_2]);
+          var halfLen2 = hs2[edge2Axis];
+
+          // Find closest points on the two edges
+          closestPointsOnSegments(
+            edge1Point, box1Axes[edge1Axis], halfLen1,
+            edge2Point, box2Axes[edge2Axis], halfLen2,
+            closestOnEdge1, closestOnEdge2
+          );
+
+          // Contact point is midway between the two closest points
+          contactPoint.addVectors(closestOnEdge1, closestOnEdge2).multiplyScalar(0.5);
+        }
+
+        var contact = new elation.physics.contact({
           point: contactPoint.clone(),
-          penetration: 0, //-minPenetration, // negative value as it's penetration
-          //penetration: box1Closest.distanceTo(box2Closest),
+          normal: contactNormal.clone(),
+          penetration: -minPenetration,
           bodies: [box1.body, box2.body]
         });
 
         contacts.push(contact);
         return contacts;
-      }
-      function findClosestPointOnBox(corners, normal) {
-        let closestPoint = corners[0];
-        let minDistance = closestPoint.dot(normal);
-
-        for (let i = 1; i < corners.length; i++) {
-          const dist = corners[i].dot(normal);
-          if (dist < minDistance) {
-            closestPoint = corners[i];
-            minDistance = dist;
-          }
-        }
-        return closestPoint;
-      }
-      function findClosestPointOnFace(corners, otherBox, normal) {
-        let closestPoint = null;
-        let minDistance = Infinity;
-
-        // Check the projection of each corner onto the face of the other box
-        for (let i = 0; i < corners.length; i++) {
-          const corner = corners[i];
-          const projectedPoint = projectPointOntoFace(corner, otherBox, normal);
-
-          const distance = corner.distanceTo(projectedPoint);
-          if (distance < minDistance) {
-            closestPoint = projectedPoint;
-            minDistance = distance;
-          }
-        }
-
-        return closestPoint;
-      }
-
-      function projectPointOntoFace(point, box, normal) {
-        // First, find the center of the box in world space
-        const boxCenter = new THREE.Vector3();
-        box.body.localToWorldPos(boxCenter.set(0, 0, 0));
-
-        // Determine the plane of the face by using the box's normal and a point on the plane
-        // (the center of the face, which is aligned with one of the box's axes)
-        const halfSize = box.halfsize;
-        const offset = new THREE.Vector3().addVectors(box.min, box.max).multiplyScalar(.5);
-        const planePoint = new THREE.Vector3();
-        const planeNormal = normal.clone().normalize(); // Normal of the face (aligned with one of the box's axes)
-
-        // We need to determine which face we're projecting onto, so find the direction along the normal
-        // Set the point on the plane (face center) by adding/subtracting half the box size along the normal
-        for (let i = 0; i < 3; i++) {
-            const axisValue = planeNormal.getComponent(i);
-            if (axisValue !== 0) {
-                planePoint.setComponent(i, boxCenter.getComponent(i) + (axisValue * halfSize.getComponent(i)));
-            }
-        }
-
-        // Now, we project the point onto the plane
-        // To do that, find the vector from the point to the plane point
-        const pointToPlane = point.clone().sub(planePoint);
-
-        // Project this vector onto the normal to find how far away the point is from the plane
-        const distance = pointToPlane.dot(planeNormal);
-
-        // Move the point onto the plane by subtracting the distance along the normal
-        const projectedPoint = point.clone().sub(planeNormal.multiplyScalar(distance));
-
-        // Now we need to clamp the projected point to the bounds of the box face
-        // For each axis, clamp the value within the bounds of the face
-        for (let i = 0; i < 3; i++) {
-            const axisValue = planeNormal.getComponent(i);
-            if (axisValue === 0) {
-                // Clamp the coordinate to be within the face bounds (which are defined by the box size)
-                const minVal = boxCenter.getComponent(i) - halfSize.getComponent(i);
-                const maxVal = boxCenter.getComponent(i) + halfSize.getComponent(i);
-                const value = projectedPoint.getComponent(i);
-                projectedPoint.setComponent(i, Math.max(minVal, Math.min(value, maxVal)));
-            }
-        }
-
-        return projectedPoint.add(offset);
-
-      }
-
-
-
-      return function(box1, box2, contacts, dt) {
-        const axes = getAxesToTest(box1, box2, scratch.axes);
-        let hasCollision = true;
-        let minPenetration = Infinity;
-
-        // Check for overlap along each axis
-        for (let axis of axes) {
-          const overlap = getPenetrationOnAxis(box1, box2, axis);
-          if (overlap === false) {
-            hasCollision = false; // Separating axis found, no collision
-            break;
-          } else if (overlap < minPenetration) {
-            minPenetration = overlap; // Track the minimum penetration
-            scratch.contactAxis.copy(axis);  // Store the axis with minimum penetration
-          }
-        }
-
-        if (!hasCollision) {
-          return false;
-        }
-
-        // If colliding, generate contact points and return them
-        return generateContacts(box1, box2, minPenetration, scratch.contactAxis, contacts);
-      }
+      };
     })();
+
+    /**
+     * Box-Triangle collision using SAT (Separating Axis Theorem)
+     * Tests 13 axes: 1 triangle normal + 3 box faces + 9 edge cross products
+     */
+    this.box_triangle = (function() {
+      // Closure scratch variables
+      var boxAxes = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      var triEdges = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      var triNormal = new THREE.Vector3();
+      var boxCenter = new THREE.Vector3();
+      var triCenter = new THREE.Vector3();
+      var diff = new THREE.Vector3();
+      var contactNormal = new THREE.Vector3();
+      var contactPoint = new THREE.Vector3();
+      var tmpVec = new THREE.Vector3();
+      var tmpVec2 = new THREE.Vector3();
+      var crossAxis = new THREE.Vector3();
+      var triVerts = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+
+      // Project box onto axis
+      function projectBox(boxCenter, boxAxes, halfsize, axis, out) {
+        var centerProj = boxCenter.dot(axis);
+        var extent =
+          halfsize.x * Math.abs(boxAxes[0].dot(axis)) +
+          halfsize.y * Math.abs(boxAxes[1].dot(axis)) +
+          halfsize.z * Math.abs(boxAxes[2].dot(axis));
+        out.min = centerProj - extent;
+        out.max = centerProj + extent;
+      }
+
+      // Project triangle onto axis
+      function projectTriangle(v0, v1, v2, axis, out) {
+        var p0 = v0.dot(axis);
+        var p1 = v1.dot(axis);
+        var p2 = v2.dot(axis);
+        out.min = Math.min(p0, p1, p2);
+        out.max = Math.max(p0, p1, p2);
+      }
+
+      // Test if projections overlap, return overlap amount or false
+      function testOverlap(proj1, proj2) {
+        if (proj1.max < proj2.min || proj2.max < proj1.min) {
+          return false; // Separating axis found
+        }
+        return Math.min(proj1.max - proj2.min, proj2.max - proj1.min);
+      }
+
+      var proj1 = { min: 0, max: 0 };
+      var proj2 = { min: 0, max: 0 };
+
+      return function(box, triangle, contacts, dt) {
+        if (!contacts) contacts = [];
+
+        // Get triangle world points
+        var worldpoints = triangle.getWorldPoints();
+        triVerts[0].copy(worldpoints.p1);
+        triVerts[1].copy(worldpoints.p2);
+        triVerts[2].copy(worldpoints.p3);
+
+        // Triangle edges
+        triEdges[0].subVectors(triVerts[1], triVerts[0]);
+        triEdges[1].subVectors(triVerts[2], triVerts[1]);
+        triEdges[2].subVectors(triVerts[0], triVerts[2]);
+
+        // Triangle normal (from cached world normal)
+        triNormal.copy(worldpoints.normal);
+
+        // Triangle center
+        triCenter.copy(triVerts[0]).add(triVerts[1]).add(triVerts[2]).divideScalar(3);
+
+        // Get box center and axes in world space
+        // Box center from min/max (handles offset colliders)
+        boxCenter.addVectors(box.min, box.max).multiplyScalar(0.5);
+        if (boxCenter.lengthSq() > 0) {
+          var orient = box.body.orientationWorld || box.body.orientation;
+          boxCenter.applyQuaternion(orient);
+        }
+        boxCenter.add(box.body.position);
+
+        // Box world axes
+        var orient = box.body.orientationWorld || box.body.orientation;
+        boxAxes[0].set(1, 0, 0).applyQuaternion(orient);
+        boxAxes[1].set(0, 1, 0).applyQuaternion(orient);
+        boxAxes[2].set(0, 0, 1).applyQuaternion(orient);
+
+        // Vector from box center to triangle center
+        diff.subVectors(triCenter, boxCenter);
+
+        var minPenetration = Infinity;
+        var minAxisType = -1; // 0=triNormal, 1-3=boxAxes, 4-12=edge cross
+        var minAxisIndex = -1;
+        var penetration;
+
+        // Test 1: Triangle normal
+        tmpVec.copy(triNormal);
+        if (tmpVec.lengthSq() > 1e-8) {
+          tmpVec.normalize();
+          projectBox(boxCenter, boxAxes, box.halfsize, tmpVec, proj1);
+          projectTriangle(triVerts[0], triVerts[1], triVerts[2], tmpVec, proj2);
+          penetration = testOverlap(proj1, proj2);
+          if (penetration === false) return false;
+          if (penetration < minPenetration) {
+            minPenetration = penetration;
+            minAxisType = 0;
+            contactNormal.copy(tmpVec);
+          }
+        }
+
+        // Test 2-4: Box face normals
+        for (var i = 0; i < 3; i++) {
+          tmpVec.copy(boxAxes[i]);
+          projectBox(boxCenter, boxAxes, box.halfsize, tmpVec, proj1);
+          projectTriangle(triVerts[0], triVerts[1], triVerts[2], tmpVec, proj2);
+          penetration = testOverlap(proj1, proj2);
+          if (penetration === false) return false;
+          if (penetration < minPenetration) {
+            minPenetration = penetration;
+            minAxisType = 1;
+            minAxisIndex = i;
+            contactNormal.copy(tmpVec);
+          }
+        }
+
+        // Test 5-13: Cross products of triangle edges with box edges
+        for (var i = 0; i < 3; i++) {
+          for (var j = 0; j < 3; j++) {
+            crossAxis.crossVectors(triEdges[i], boxAxes[j]);
+            var lenSq = crossAxis.lengthSq();
+            if (lenSq < 1e-8) continue; // Skip degenerate (parallel) axes
+
+            tmpVec.copy(crossAxis).normalize();
+            projectBox(boxCenter, boxAxes, box.halfsize, tmpVec, proj1);
+            projectTriangle(triVerts[0], triVerts[1], triVerts[2], tmpVec, proj2);
+            penetration = testOverlap(proj1, proj2);
+            if (penetration === false) return false;
+            if (penetration < minPenetration) {
+              minPenetration = penetration;
+              minAxisType = 2;
+              minAxisIndex = i * 3 + j;
+              contactNormal.copy(tmpVec);
+            }
+          }
+        }
+
+        // Ensure normal points from box toward triangle
+        if (contactNormal.dot(diff) < 0) {
+          contactNormal.negate();
+        }
+
+        // Calculate contact point
+        if (minAxisType === 0) {
+          // Triangle normal was minimum - contact is on triangle face
+          // Find closest point on triangle to box center, clamped
+          elation.physics.colliders.helperfuncs.closest_point_on_triangle(
+            boxCenter, triVerts[0], triVerts[1], triVerts[2], contactPoint
+          );
+          // Move toward box by half penetration
+          contactPoint.addScaledVector(contactNormal, -minPenetration * 0.5);
+
+        } else if (minAxisType === 1) {
+          // Box face normal was minimum - contact is on box face
+          // Project triangle center onto box face, clamped to face bounds
+          var faceAxisIndex = minAxisIndex;
+          var tangent1 = (faceAxisIndex + 1) % 3;
+          var tangent2 = (faceAxisIndex + 2) % 3;
+          var hs = [box.halfsize.x, box.halfsize.y, box.halfsize.z];
+
+          // Start at box face
+          var normalSign = diff.dot(boxAxes[faceAxisIndex]) > 0 ? 1 : -1;
+          contactPoint.copy(boxCenter);
+          contactPoint.addScaledVector(boxAxes[faceAxisIndex], normalSign * hs[faceAxisIndex]);
+
+          // Project triangle center onto face tangent axes
+          tmpVec.subVectors(triCenter, boxCenter);
+          var proj1Val = tmpVec.dot(boxAxes[tangent1]);
+          proj1Val = Math.max(-hs[tangent1], Math.min(hs[tangent1], proj1Val));
+          contactPoint.addScaledVector(boxAxes[tangent1], proj1Val);
+
+          var proj2Val = tmpVec.dot(boxAxes[tangent2]);
+          proj2Val = Math.max(-hs[tangent2], Math.min(hs[tangent2], proj2Val));
+          contactPoint.addScaledVector(boxAxes[tangent2], proj2Val);
+
+          // Move into contact by half penetration
+          contactPoint.addScaledVector(contactNormal, -minPenetration * 0.5);
+
+        } else {
+          // Edge-edge contact
+          var triEdgeIdx = Math.floor(minAxisIndex / 3);
+          var boxEdgeIdx = minAxisIndex % 3;
+
+          // Get triangle edge endpoints
+          var triEdgeStart = triVerts[triEdgeIdx];
+          var triEdgeEnd = triVerts[(triEdgeIdx + 1) % 3];
+
+          // Get box edge - find the edge closest to the triangle
+          var hs = [box.halfsize.x, box.halfsize.y, box.halfsize.z];
+          var ax1 = (boxEdgeIdx + 1) % 3;
+          var ax2 = (boxEdgeIdx + 2) % 3;
+
+          // Pick signs based on direction to triangle
+          var sign1 = diff.dot(boxAxes[ax1]) > 0 ? 1 : -1;
+          var sign2 = diff.dot(boxAxes[ax2]) > 0 ? 1 : -1;
+
+          // Box edge center and half-length
+          tmpVec.copy(boxCenter);
+          tmpVec.addScaledVector(boxAxes[ax1], sign1 * hs[ax1]);
+          tmpVec.addScaledVector(boxAxes[ax2], sign2 * hs[ax2]);
+          var boxEdgeHalfLen = hs[boxEdgeIdx];
+
+          // Find closest points on the two edges
+          // Use line-line closest point calculation
+          var d1 = boxAxes[boxEdgeIdx];
+          var d2 = triEdges[triEdgeIdx].clone().normalize();
+          var triEdgeLen = triEdges[triEdgeIdx].length();
+
+          tmpVec2.subVectors(triEdgeStart, tmpVec);
+
+          var d1d1 = 1; // d1 is unit length
+          var d2d2 = 1; // d2 is normalized
+          var d1d2 = d1.dot(d2);
+          var d1r = d1.dot(tmpVec2);
+          var d2r = d2.dot(tmpVec2);
+
+          var denom = d1d1 * d2d2 - d1d2 * d1d2;
+          var t, s;
+          if (Math.abs(denom) < 1e-8) {
+            t = 0;
+            s = 0;
+          } else {
+            t = (d1d2 * d2r - d2d2 * d1r) / denom;
+            s = (d1d1 * d2r - d1d2 * d1r) / denom;
+          }
+
+          // Clamp to edge bounds
+          t = Math.max(-boxEdgeHalfLen, Math.min(boxEdgeHalfLen, t));
+          s = Math.max(0, Math.min(triEdgeLen, s));
+
+          // Compute contact point as midpoint
+          var boxEdgePoint = tmpVec.clone().addScaledVector(d1, t);
+          var triEdgePoint = triEdgeStart.clone().addScaledVector(d2, s);
+          contactPoint.addVectors(boxEdgePoint, triEdgePoint).multiplyScalar(0.5);
+        }
+
+        var contact = new elation.physics.contact({
+          point: contactPoint.clone(),
+          normal: contactNormal.clone(),
+          penetration: -minPenetration,
+          bodies: [box.body, triangle.body],
+          triangle: triangle
+        });
+
+        contacts.push(contact);
+        return contacts;
+      };
+    })();
+
+    /**
+     * Triangle-Box collision (reverses box-triangle)
+     */
+    this.triangle_box = function(triangle, box, contacts, dt) {
+      return this.box_triangle(box, triangle, contacts, dt);
+    };
+
+    /**
+     * Mesh-Box collision - iterates over mesh triangles
+     */
+    this.mesh_box = (function() {
+      var boxBoundingSphere = { radius: 0 };
+      var sphereContacts = [];
+
+      return function(mesh, box, contacts, dt) {
+        if (!contacts) contacts = [];
+
+        // Broad phase: check box against mesh bounding sphere
+        // Compute box bounding sphere radius
+        var boxDiag = Math.sqrt(
+          box.halfsize.x * box.halfsize.x +
+          box.halfsize.y * box.halfsize.y +
+          box.halfsize.z * box.halfsize.z
+        );
+
+        // Quick bounding sphere check
+        var boxCenter = box.body.positionWorld;
+        var meshCenter = mesh.body.positionWorld;
+        var centerDist = boxCenter.distanceTo(meshCenter);
+        var maxDist = boxDiag + mesh.boundingSphere.radius;
+
+        if (centerDist > maxDist) {
+          return false; // Too far apart
+        }
+
+        // Narrow phase: test box against each triangle
+        var localcontacts = [];
+        var boxMaxDistSq = Math.pow(boxDiag + box.body.velocity.length(), 2);
+
+        for (var i = 0; i < mesh.triangles.length; i++) {
+          var triangle = mesh.triangles[i];
+          var worldpoints = triangle.getWorldPoints();
+
+          // Quick distance check to triangle center
+          var distToCenter = worldpoints.center.distanceToSquared(boxCenter);
+          var triRadius = worldpoints.radius || 0;
+
+          if (distToCenter <= boxMaxDistSq + triRadius * triRadius + boxDiag * boxDiag) {
+            elation.physics.colliders.helperfuncs.box_triangle(box, triangle, localcontacts, dt);
+          }
+        }
+
+        // Find the deepest contact
+        if (localcontacts.length > 0) {
+          var closest = localcontacts[0];
+          for (var i = 1; i < localcontacts.length; i++) {
+            if (localcontacts[i].penetration < closest.penetration) {
+              closest = localcontacts[i];
+            }
+          }
+
+          // Update bodies to use mesh root
+          closest.bodies[1] = mesh.getRoot();
+          contacts.push(closest);
+        }
+
+        return contacts;
+      };
+    })();
+
+    /**
+     * Box-Mesh collision (reverses mesh-box)
+     */
+    this.box_mesh = function(box, mesh, contacts, dt) {
+      return this.mesh_box(mesh, box, contacts, dt);
+    };
 
     /* cylinder helpers */
     this.cylinder_sphere = function() {
@@ -815,12 +1226,388 @@ elation.require(['physics.common', 'utils.math'], function() {
     this.sphere_triangle = function(sphere, triangle, contacts, dt) {
       return this.triangle_sphere(triangle, sphere, contacts, dt);
     }
-    this.cylinder_box = function(cylinder, box, contacts, dt) {
-      //return this.cylinder_sphere(cylinder, sphere, contacts);
-    }
-    this.cylinder_cylinder = function(cylinder, box, contacts, dt) {
-      //return this.cylinder_sphere(cylinder, sphere, contacts);
-    }
+    this.cylinder_box = (function() {
+      // Closure scratch variables
+      var cylAxisStart = new THREE.Vector3();
+      var cylAxisEnd = new THREE.Vector3();
+      var cylAxisStartLocal = new THREE.Vector3();
+      var cylAxisEndLocal = new THREE.Vector3();
+      var closestOnAxis = new THREE.Vector3();
+      var closestOnBox = new THREE.Vector3();
+      var diff = new THREE.Vector3();
+      var invQuat = new THREE.Quaternion();
+      var tmpVec = new THREE.Vector3();
+      var lineDir = new THREE.Vector3();
+      var capCenter = new THREE.Vector3();
+      var capNormal = new THREE.Vector3();
+
+      // Closest point on line segment to a point
+      function closestPointOnSegment(segStart, segEnd, point, out) {
+        lineDir.subVectors(segEnd, segStart);
+        var lenSq = lineDir.lengthSq();
+        if (lenSq < 1e-8) {
+          out.copy(segStart);
+          return 0;
+        }
+        var t = tmpVec.subVectors(point, segStart).dot(lineDir) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        out.copy(segStart).addScaledVector(lineDir, t);
+        return t;
+      }
+
+      // Closest point on AABB to a point
+      function closestPointOnAABB(point, boxMin, boxMax, out) {
+        out.x = Math.max(boxMin.x, Math.min(boxMax.x, point.x));
+        out.y = Math.max(boxMin.y, Math.min(boxMax.y, point.y));
+        out.z = Math.max(boxMin.z, Math.min(boxMax.z, point.z));
+      }
+
+      // Check if a point is inside AABB
+      function pointInAABB(point, boxMin, boxMax) {
+        return point.x >= boxMin.x && point.x <= boxMax.x &&
+               point.y >= boxMin.y && point.y <= boxMax.y &&
+               point.z >= boxMin.z && point.z <= boxMax.z;
+      }
+
+      return function(cylinder, box, contacts, dt) {
+        if (!contacts) contacts = [];
+
+        var halfHeight = cylinder.height / 2;
+        // Scale radius by body's world scale (max of X/Z since cylinder is Y-aligned)
+        var cylScale = cylinder.body.scaleWorld;
+        var cylRadius = cylinder.radius * Math.max(cylScale.x, cylScale.z);
+
+        // Get cylinder axis endpoints in world space
+        cylAxisStart.set(0, -halfHeight, 0);
+        cylAxisEnd.set(0, halfHeight, 0);
+        if (cylinder.offset) {
+          cylAxisStart.add(cylinder.offset);
+          cylAxisEnd.add(cylinder.offset);
+        }
+        cylinder.body.localToWorldPos(cylAxisStart);
+        cylinder.body.localToWorldPos(cylAxisEnd);
+
+        // Transform to box's local space (where box is axis-aligned)
+        cylAxisStartLocal.copy(cylAxisStart).sub(box.body.position);
+        cylAxisEndLocal.copy(cylAxisEnd).sub(box.body.position);
+        if (box.body.orientation) {
+          invQuat.copy(box.body.orientation).invert();
+          cylAxisStartLocal.applyQuaternion(invQuat);
+          cylAxisEndLocal.applyQuaternion(invQuat);
+        }
+
+        var bestContact = null;
+        var bestPenetration = -Infinity;
+
+        // === Test 1: Barrel vs Box ===
+        // Find closest point pair between cylinder axis and box
+        // Use iterative approach like capsule_box
+        closestPointOnSegment(cylAxisStartLocal, cylAxisEndLocal,
+          tmpVec.addVectors(box.min, box.max).multiplyScalar(0.5), closestOnAxis);
+
+        for (var iter = 0; iter < 3; iter++) {
+          closestPointOnAABB(closestOnAxis, box.min, box.max, closestOnBox);
+          closestPointOnSegment(cylAxisStartLocal, cylAxisEndLocal, closestOnBox, closestOnAxis);
+        }
+        closestPointOnAABB(closestOnAxis, box.min, box.max, closestOnBox);
+
+        // Check distance for barrel collision
+        diff.subVectors(closestOnAxis, closestOnBox);
+        var dist = diff.length();
+
+        if (dist < cylRadius) {
+          var penetration = -(cylRadius - dist);
+          if (penetration > bestPenetration) {
+            bestPenetration = penetration;
+
+            // Transform contact back to world space
+            var contactPointWorld = closestOnBox.clone();
+            if (box.body.orientation) {
+              contactPointWorld.applyQuaternion(box.body.orientation);
+            }
+            contactPointWorld.add(box.body.position);
+
+            var normal;
+            if (dist > 1e-6) {
+              // Normal from cylinder toward box (bodies[0] toward bodies[1])
+              normal = closestOnBox.clone().sub(closestOnAxis).normalize();
+              if (box.body.orientation) {
+                normal.applyQuaternion(box.body.orientation);
+              }
+            } else {
+              // Degenerate case - find direction from cylinder center to box center
+              normal = box.body.position.clone().sub(cylinder.body.position).normalize();
+            }
+
+            bestContact = {
+              point: contactPointWorld,
+              normal: normal,
+              penetration: penetration
+            };
+          }
+        }
+
+        // === Test 2: Caps vs Box ===
+        // Check each cap (disk) against the box
+        var caps = [
+          { center: cylAxisStartLocal.clone(), sign: -1 },
+          { center: cylAxisEndLocal.clone(), sign: 1 }
+        ];
+
+        // Cylinder's local Y axis in box's local space
+        capNormal.subVectors(cylAxisEndLocal, cylAxisStartLocal).normalize();
+
+        for (var c = 0; c < 2; c++) {
+          var cap = caps[c];
+          var capCenterLocal = cap.center;
+
+          // Find closest point on box to cap center
+          closestPointOnAABB(capCenterLocal, box.min, box.max, closestOnBox);
+
+          // Project that point onto the cap plane
+          diff.subVectors(closestOnBox, capCenterLocal);
+          var distAlongNormal = diff.dot(capNormal);
+
+          // Point on cap plane closest to the box point
+          tmpVec.copy(capNormal).multiplyScalar(distAlongNormal);
+          var projectedPoint = closestOnBox.clone().sub(tmpVec);
+
+          // Check if projected point is within disk radius
+          var distFromAxis = projectedPoint.distanceTo(capCenterLocal);
+
+          if (distFromAxis <= cylRadius) {
+            // The projected point is within the disk
+            // For a cap collision, we need the box to be on the "inside" of the cap
+            // cap.sign=-1 for bottom cap (capNormal points up), box inside if distAlongNormal > 0
+            // cap.sign=1 for top cap (capNormal points up), box inside if distAlongNormal < 0
+            // So collision when: distAlongNormal * cap.sign < 0
+            var insideAmount = -distAlongNormal * cap.sign;
+
+            if (insideAmount > 0 && insideAmount < cylRadius) {
+              // Penetration is how far the box has crossed the cap plane
+              var penetration = -insideAmount;
+
+              if (penetration > bestPenetration) {
+                bestPenetration = penetration;
+
+                var contactPointWorld = closestOnBox.clone();
+                if (box.body.orientation) {
+                  contactPointWorld.applyQuaternion(box.body.orientation);
+                }
+                contactPointWorld.add(box.body.position);
+
+                // Normal from cylinder cap toward box (bodies[0] toward bodies[1])
+                // Normal should point outward from cap (the direction the cap faces)
+                // capNormal points from bottom to top, so cap's outward = capNormal * cap.sign
+                var normal = capNormal.clone().multiplyScalar(cap.sign);
+                if (box.body.orientation) {
+                  normal.applyQuaternion(box.body.orientation);
+                }
+
+                bestContact = {
+                  point: contactPointWorld,
+                  normal: normal,
+                  penetration: penetration
+                };
+              }
+            }
+          } else {
+            // Box might be hitting the rim (edge of cap)
+            // Find closest point on rim circle to box
+            var toBox = projectedPoint.clone().sub(capCenterLocal);
+            if (toBox.lengthSq() > 1e-8) {
+              toBox.normalize().multiplyScalar(cylRadius);
+              var rimPoint = capCenterLocal.clone().add(toBox);
+
+              closestPointOnAABB(rimPoint, box.min, box.max, closestOnBox);
+              diff.subVectors(closestOnBox, rimPoint);
+              dist = diff.length();
+
+              // Rim collision - only when rim and box are actually close
+              // Use a small fixed tolerance, not a fraction of radius
+              if (dist < 0.1) {
+                var penetration = -dist;
+                if (penetration > bestPenetration) {
+                  bestPenetration = penetration;
+
+                  var contactPointWorld = closestOnBox.clone();
+                  if (box.body.orientation) {
+                    contactPointWorld.applyQuaternion(box.body.orientation);
+                  }
+                  contactPointWorld.add(box.body.position);
+
+                  // Normal from cylinder rim toward box (bodies[0] toward bodies[1])
+                  var normal = diff.clone().normalize();
+                  if (box.body.orientation) {
+                    normal.applyQuaternion(box.body.orientation);
+                  }
+
+                  bestContact = {
+                    point: contactPointWorld,
+                    normal: normal,
+                    penetration: penetration
+                  };
+                }
+              }
+            }
+          }
+        }
+
+        if (bestContact) {
+          var contact = new elation.physics.contact({
+            point: bestContact.point,
+            normal: bestContact.normal,
+            penetration: bestContact.penetration,
+            bodies: [cylinder.body, box.body]
+          });
+          contacts.push(contact);
+          return contacts;
+        }
+
+        return false;
+      };
+    })();
+
+    this.box_cylinder = function(box, cylinder, contacts, dt) {
+      return this.cylinder_box(cylinder, box, contacts, dt);
+    };
+
+    this.cylinder_cylinder = (function() {
+      // Closure scratch variables
+      var axis1Start = new THREE.Vector3();
+      var axis1End = new THREE.Vector3();
+      var axis2Start = new THREE.Vector3();
+      var axis2End = new THREE.Vector3();
+      var closestOn1 = new THREE.Vector3();
+      var closestOn2 = new THREE.Vector3();
+      var diff = new THREE.Vector3();
+      var d1 = new THREE.Vector3();
+      var d2 = new THREE.Vector3();
+      var r = new THREE.Vector3();
+
+      // Closest points between two line segments (using full segment vectors)
+      function closestPointsBetweenSegments(p1, q1, p2, q2, out1, out2) {
+        d1.subVectors(q1, p1);
+        d2.subVectors(q2, p2);
+        r.subVectors(p1, p2);
+
+        var a = d1.dot(d1);
+        var e = d2.dot(d2);
+        var f = d2.dot(r);
+
+        var s, t;
+
+        if (a < 1e-8 && e < 1e-8) {
+          out1.copy(p1);
+          out2.copy(p2);
+          return;
+        }
+        if (a < 1e-8) {
+          s = 0;
+          t = Math.max(0, Math.min(1, f / e));
+        } else {
+          var c = d1.dot(r);
+          if (e < 1e-8) {
+            t = 0;
+            s = Math.max(0, Math.min(1, -c / a));
+          } else {
+            var b = d1.dot(d2);
+            var denom = a * e - b * b;
+
+            if (Math.abs(denom) > 1e-8) {
+              s = Math.max(0, Math.min(1, (b * f - c * e) / denom));
+            } else {
+              s = 0;
+            }
+
+            t = (b * s + f) / e;
+
+            if (t < 0) {
+              t = 0;
+              s = Math.max(0, Math.min(1, -c / a));
+            } else if (t > 1) {
+              t = 1;
+              s = Math.max(0, Math.min(1, (b - c) / a));
+            }
+          }
+        }
+
+        out1.copy(p1).addScaledVector(d1, s);
+        out2.copy(p2).addScaledVector(d2, t);
+      }
+
+      return function(cylinder1, cylinder2, contacts, dt) {
+        if (!contacts) contacts = [];
+
+        // Get cylinder 1 axis in world space
+        var halfHeight1 = cylinder1.height / 2;
+        axis1Start.set(0, -halfHeight1, 0);
+        axis1End.set(0, halfHeight1, 0);
+        if (cylinder1.offset) {
+          axis1Start.add(cylinder1.offset);
+          axis1End.add(cylinder1.offset);
+        }
+        cylinder1.body.localToWorldPos(axis1Start);
+        cylinder1.body.localToWorldPos(axis1End);
+
+        // Get cylinder 2 axis in world space
+        var halfHeight2 = cylinder2.height / 2;
+        axis2Start.set(0, -halfHeight2, 0);
+        axis2End.set(0, halfHeight2, 0);
+        if (cylinder2.offset) {
+          axis2Start.add(cylinder2.offset);
+          axis2End.add(cylinder2.offset);
+        }
+        cylinder2.body.localToWorldPos(axis2Start);
+        cylinder2.body.localToWorldPos(axis2End);
+
+        // Find closest points between the two axes
+        closestPointsBetweenSegments(
+          axis1Start, axis1End,
+          axis2Start, axis2End,
+          closestOn1, closestOn2
+        );
+
+        // Check barrel-to-barrel collision
+        diff.subVectors(closestOn1, closestOn2);
+        var dist = diff.length();
+        var combinedRadius = cylinder1.radius + cylinder2.radius;
+
+        if (dist < combinedRadius) {
+          var penetration = -(combinedRadius - dist);
+
+          var normal;
+          if (dist > 1e-6) {
+            normal = diff.clone().divideScalar(dist); // Points from cyl2 toward cyl1
+          } else {
+            // Axes are intersecting - use perpendicular to both
+            d1.subVectors(axis1End, axis1Start);
+            d2.subVectors(axis2End, axis2Start);
+            normal = d1.clone().cross(d2);
+            if (normal.lengthSq() < 1e-8) {
+              normal.set(1, 0, 0);
+            }
+            normal.normalize();
+          }
+
+          // Contact point between the two surfaces
+          var contactPoint = closestOn2.clone().addScaledVector(normal, cylinder2.radius);
+
+          var contact = new elation.physics.contact({
+            point: contactPoint,
+            normal: normal,
+            penetration: penetration,
+            bodies: [cylinder2.body, cylinder1.body]
+          });
+          contacts.push(contact);
+          return contacts;
+        }
+
+        // TODO: Check cap-to-cap and cap-to-barrel collisions
+
+        return contacts;
+      };
+    })();
     this.cylinder_plane = function() {
       var up = new THREE.Vector3();
       var planenorm = new THREE.Vector3();
@@ -940,93 +1727,306 @@ elation.require(['physics.common', 'utils.math'], function() {
         }
       }
     }();
-    this.capsule_box = function() {
+    this.capsule_box = (function() {
       // closure scratch variables
-      var boxpos = new THREE.Vector3();
-      var start = new THREE.Vector3();
-      var end = new THREE.Vector3();
-      var point = new THREE.Vector3();
-      var normal = new THREE.Vector3();
-      var rigid = new elation.physics.rigidbody();
+      var startWorld = new THREE.Vector3();
+      var endWorld = new THREE.Vector3();
+      var startLocal = new THREE.Vector3();
+      var endLocal = new THREE.Vector3();
+      var closestOnCapsule = new THREE.Vector3();
+      var closestOnBox = new THREE.Vector3();
+      var closestOnBoxWorld = new THREE.Vector3();
+      var closestOnCapsuleWorld = new THREE.Vector3();
+      var diff = new THREE.Vector3();
+      var lineDir = new THREE.Vector3();
+      var invQuat = new THREE.Quaternion();
+      var tmpVec = new THREE.Vector3();
+
+      // Find closest point on line segment to a point
+      function closestPointOnSegment(segStart, segEnd, point, out) {
+        lineDir.subVectors(segEnd, segStart);
+        var lenSq = lineDir.lengthSq();
+        if (lenSq < 1e-8) {
+          out.copy(segStart);
+          return 0;
+        }
+        var t = tmpVec.subVectors(point, segStart).dot(lineDir) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        out.copy(segStart).addScaledVector(lineDir, t);
+        return t;
+      }
+
+      // Find closest point on AABB to a point
+      function closestPointOnAABB(point, boxMin, boxMax, out) {
+        out.x = Math.max(boxMin.x, Math.min(boxMax.x, point.x));
+        out.y = Math.max(boxMin.y, Math.min(boxMax.y, point.y));
+        out.z = Math.max(boxMin.z, Math.min(boxMax.z, point.z));
+      }
 
       return function(capsule, box, contacts, dt) {
+        if (!contacts) contacts = [];
 
-        start.set(0,0,0);
-        end.set(0,capsule.length,0);
+        // Get capsule axis endpoints in world space
+        startWorld.set(0, 0, 0);
+        endWorld.set(0, capsule.length, 0);
         if (capsule.offset) {
-          start.add(capsule.offset);
-          end.add(capsule.offset);
+          startWorld.add(capsule.offset);
+          endWorld.add(capsule.offset);
         }
-        capsule.body.localToWorldPos(start);
-        capsule.body.localToWorldPos(end);
-        //box.body.localToWorldPos(point.set(0,0,0));
+        capsule.body.localToWorldPos(startWorld);
+        capsule.body.localToWorldPos(endWorld);
 
-        // FIXME - ugly hack using two spheres
-        // TODO - use proper sphere-swept line calculations
-        rigid.velocity = capsule.body.velocity;
-        rigid.orientation = capsule.body.orientation;
-        rigid.position = start;
+        // Get scaled capsule radius (account for non-uniform scale)
+        var capsuleScaledRadius = capsule.radius * Math.max(capsule.body.scale.x, capsule.body.scale.z);
 
-        var sphere = new elation.physics.colliders.sphere(rigid, {radius: capsule.radius});
-        var head = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
-
-        rigid.position = end;
-        var sphere2 = new elation.physics.colliders.sphere(rigid, {radius: capsule.radius});
-        var tail = elation.physics.colliders.helperfuncs.box_sphere(box, sphere2);
-
-        if (head && tail) {
-          head[0].bodies[1] = capsule.body;
-          tail[0].bodies[1] = capsule.body;
-          //contacts.push(head[0].penetration > tail[0].penetration ? head[0] : tail[0]);
-          contacts.push(head[0]);
-        } else if (head) {
-          head[0].bodies[1] = capsule.body;
-          contacts.push(head[0]);
-        } else if (tail) {
-          tail[0].point.y -= capsule.length;
-          tail[0].bodies[1] = capsule.body;
-          contacts.push(tail[0]);
+        // Transform capsule endpoints to box's scaled local space
+        // (same coordinate space as box.min/max)
+        startLocal.copy(startWorld).sub(box.body.position);
+        endLocal.copy(endWorld).sub(box.body.position);
+        if (box.body.orientation) {
+          invQuat.copy(box.body.orientation).invert();
+          startLocal.applyQuaternion(invQuat);
+          endLocal.applyQuaternion(invQuat);
         }
+
+        // Find closest point pair between capsule axis and box
+        // Use iterative approach: alternate between finding closest on box and closest on line
+        // Start with midpoint of capsule
+        closestPointOnSegment(startLocal, endLocal, tmpVec.addVectors(box.min, box.max).multiplyScalar(0.5), closestOnCapsule);
+
+        // Iterate to converge on closest pair (usually 2-3 iterations is enough)
+        for (var iter = 0; iter < 3; iter++) {
+          closestPointOnAABB(closestOnCapsule, box.min, box.max, closestOnBox);
+          closestPointOnSegment(startLocal, endLocal, closestOnBox, closestOnCapsule);
+        }
+
+        // Final closest point on box
+        closestPointOnAABB(closestOnCapsule, box.min, box.max, closestOnBox);
+
+        // Check distance
+        diff.subVectors(closestOnCapsule, closestOnBox);
+        var distSq = diff.lengthSq();
+
+        if (distSq > capsuleScaledRadius * capsuleScaledRadius) {
+          return false; // No collision
+        }
+
+        var dist = Math.sqrt(distSq);
+
+        // Transform points back to world space
+        closestOnBoxWorld.copy(closestOnBox);
+        closestOnCapsuleWorld.copy(closestOnCapsule);
+        if (box.body.orientation) {
+          closestOnBoxWorld.applyQuaternion(box.body.orientation);
+          closestOnCapsuleWorld.applyQuaternion(box.body.orientation);
+        }
+        closestOnBoxWorld.add(box.body.position);
+        closestOnCapsuleWorld.add(box.body.position);
+
+        // Calculate normal (from box toward capsule)
+        var normal;
+        if (dist > 1e-6) {
+          normal = closestOnCapsuleWorld.clone().sub(closestOnBoxWorld).normalize();
+        } else {
+          // Capsule axis passes through box - use box face normal
+          // Find which face the capsule is closest to
+          var minDist = Infinity;
+          normal = new THREE.Vector3(0, 1, 0);
+
+          var distToMinX = closestOnCapsule.x - box.min.x;
+          var distToMaxX = box.max.x - closestOnCapsule.x;
+          var distToMinY = closestOnCapsule.y - box.min.y;
+          var distToMaxY = box.max.y - closestOnCapsule.y;
+          var distToMinZ = closestOnCapsule.z - box.min.z;
+          var distToMaxZ = box.max.z - closestOnCapsule.z;
+
+          if (distToMinX < minDist) { minDist = distToMinX; normal.set(-1, 0, 0); }
+          if (distToMaxX < minDist) { minDist = distToMaxX; normal.set(1, 0, 0); }
+          if (distToMinY < minDist) { minDist = distToMinY; normal.set(0, -1, 0); }
+          if (distToMaxY < minDist) { minDist = distToMaxY; normal.set(0, 1, 0); }
+          if (distToMinZ < minDist) { minDist = distToMinZ; normal.set(0, 0, -1); }
+          if (distToMaxZ < minDist) { minDist = distToMaxZ; normal.set(0, 0, 1); }
+
+          // Transform normal to world space
+          if (box.body.orientation) {
+            normal.applyQuaternion(box.body.orientation);
+          }
+        }
+
+        // Contact point is on the box surface
+        var contact = new elation.physics.contact({
+          point: closestOnBoxWorld.clone(),
+          normal: normal,
+          penetration: -(capsuleScaledRadius - dist),
+          bodies: [box.body, capsule.body]
+        });
+        contacts.push(contact);
 
         return contacts;
+      };
+    })();
+
+    /**
+     * Box-Capsule collision (reverses capsule-box)
+     */
+    this.box_capsule = function(box, capsule, contacts, dt) {
+      return this.capsule_box(capsule, box, contacts, dt);
+    };
+
+    this.capsule_cylinder = (function() {
+      // Closure scratch variables
+      var capsuleStart = new THREE.Vector3();
+      var capsuleEnd = new THREE.Vector3();
+      var cylAxisStart = new THREE.Vector3();
+      var cylAxisEnd = new THREE.Vector3();
+      var closestOnCapsule = new THREE.Vector3();
+      var closestOnCylinder = new THREE.Vector3();
+      var diff = new THREE.Vector3();
+      var tmpVec = new THREE.Vector3();
+      var d1 = new THREE.Vector3();
+      var d2 = new THREE.Vector3();
+      var r = new THREE.Vector3();
+
+      // Closest points between two line segments (using full segment vectors)
+      // Based on Real-Time Collision Detection by Christer Ericson
+      function closestPointsBetweenSegments(p1, q1, p2, q2, out1, out2) {
+        d1.subVectors(q1, p1); // Segment 1 direction (unnormalized)
+        d2.subVectors(q2, p2); // Segment 2 direction (unnormalized)
+        r.subVectors(p1, p2);
+
+        var a = d1.dot(d1); // Squared length of segment 1
+        var e = d2.dot(d2); // Squared length of segment 2
+        var f = d2.dot(r);
+
+        var s, t;
+
+        // Check if either or both segments are points
+        if (a < 1e-8 && e < 1e-8) {
+          // Both segments are points
+          out1.copy(p1);
+          out2.copy(p2);
+          return;
+        }
+        if (a < 1e-8) {
+          // First segment is a point
+          s = 0;
+          t = Math.max(0, Math.min(1, f / e));
+        } else {
+          var c = d1.dot(r);
+          if (e < 1e-8) {
+            // Second segment is a point
+            t = 0;
+            s = Math.max(0, Math.min(1, -c / a));
+          } else {
+            // General case
+            var b = d1.dot(d2);
+            var denom = a * e - b * b;
+
+            if (Math.abs(denom) > 1e-8) {
+              s = Math.max(0, Math.min(1, (b * f - c * e) / denom));
+            } else {
+              s = 0; // Parallel segments, pick arbitrary s
+            }
+
+            // Compute t for the closest point on segment 2
+            t = (b * s + f) / e;
+
+            // Clamp t and recompute s if needed
+            if (t < 0) {
+              t = 0;
+              s = Math.max(0, Math.min(1, -c / a));
+            } else if (t > 1) {
+              t = 1;
+              s = Math.max(0, Math.min(1, (b - c) / a));
+            }
+          }
+        }
+
+        out1.copy(p1).addScaledVector(d1, s);
+        out2.copy(p2).addScaledVector(d2, t);
       }
-    }();
-    this.capsule_cylinder = function() {
-      // closure scratch variables
-      const cylpos = new THREE.Vector3(),
-            start = new THREE.Vector3(),
-            end = new THREE.Vector3(),
-            point = new THREE.Vector3(),
-            normal = new THREE.Vector3();
 
       return function(capsule, cylinder, contacts, dt) {
+        if (!contacts) contacts = [];
 
-        capsule.body.localToWorldPos(start.set(0,0,0));
-        capsule.body.localToWorldPos(end.set(0,capsule.length,0));
-        //box.body.localToWorldPos(point.set(0,0,0));
+        // Get capsule axis in world space
+        capsuleStart.set(0, 0, 0);
+        capsuleEnd.set(0, capsule.length, 0);
+        if (capsule.offset) {
+          capsuleStart.add(capsule.offset);
+          capsuleEnd.add(capsule.offset);
+        }
+        capsule.body.localToWorldPos(capsuleStart);
+        capsule.body.localToWorldPos(capsuleEnd);
 
-        var sphere = new elation.physics.colliders.sphere(capsule.body, {radius: capsule.radius});
-        sphere.offset = new THREE.Vector3(0,0,0);
-        if (capsule.offset) sphere.offset.add(capsule.offset);
-        var head = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
-        sphere.offset = new THREE.Vector3(0,capsule.length,0);
-        if (capsule.offset) sphere.offset.add(capsule.offset);
-        var tail = elation.physics.colliders.helperfuncs.box_sphere(box, sphere);
-        if (head && tail) {
-          head[0].bodies[1] = capsule.body;
-          tail[0].bodies[1] = capsule.body;
-          contacts.push(head[0].penetration > tail[0].penetration ? head[0] : tail[0]);
-        } else if (head) {
-          head[0].bodies[1] = capsule.body;
-          contacts.push(head[0]);
-        } else if (tail) {
-          tail[0].bodies[1] = capsule.body;
-          contacts.push(tail[0]);
+        // Get cylinder axis in world space
+        var halfHeight = cylinder.height / 2;
+        cylAxisStart.set(0, -halfHeight, 0);
+        cylAxisEnd.set(0, halfHeight, 0);
+        if (cylinder.offset) {
+          cylAxisStart.add(cylinder.offset);
+          cylAxisEnd.add(cylinder.offset);
+        }
+        cylinder.body.localToWorldPos(cylAxisStart);
+        cylinder.body.localToWorldPos(cylAxisEnd);
+
+        // Calculate scaled radii
+        var capsuleScale = capsule.body.scaleWorld;
+        var capsuleScaledRadius = capsule.radius * Math.max(capsuleScale.x, capsuleScale.z);
+        var cylinderScale = cylinder.body.scaleWorld;
+        var cylinderScaledRadius = cylinder.radius * Math.max(cylinderScale.x, cylinderScale.z);
+
+        // Find closest points between the two axes
+        closestPointsBetweenSegments(
+          capsuleStart, capsuleEnd,
+          cylAxisStart, cylAxisEnd,
+          closestOnCapsule, closestOnCylinder
+        );
+
+        // Check barrel collision
+        diff.subVectors(closestOnCapsule, closestOnCylinder);
+        var dist = diff.length();
+        var combinedRadius = capsuleScaledRadius + cylinderScaledRadius;
+
+        if (dist < combinedRadius) {
+          var penetration = -(combinedRadius - dist);
+
+          var normal;
+          if (dist > 1e-6) {
+            normal = diff.clone().divideScalar(dist); // Points from cylinder toward capsule
+          } else {
+            // Axes are intersecting - use perpendicular to both
+            d1.subVectors(capsuleEnd, capsuleStart);
+            d2.subVectors(cylAxisEnd, cylAxisStart);
+            normal = d1.clone().cross(d2);
+            if (normal.lengthSq() < 1e-8) {
+              normal.set(1, 0, 0); // Fallback
+            }
+            normal.normalize();
+          }
+
+          // Contact point is on the cylinder surface toward the capsule
+          var contactPoint = closestOnCylinder.clone().addScaledVector(normal, cylinderScaledRadius);
+
+          var contact = new elation.physics.contact({
+            point: contactPoint,
+            normal: normal,
+            penetration: penetration,
+            bodies: [cylinder.body, capsule.body]
+          });
+          contacts.push(contact);
+          return contacts;
         }
 
+        // TODO: Check capsule sphere ends against cylinder caps
+
         return contacts;
-      }
-    }();
+      };
+    })();
+
+    this.cylinder_capsule = function(cylinder, capsule, contacts, dt) {
+      return this.capsule_cylinder(capsule, cylinder, contacts, dt);
+    };
     this.triangle_sphere = function() {
       // closure scratch variables
       const sphereClosestPointToPlane = new THREE.Vector3(),
@@ -1052,10 +2052,24 @@ elation.require(['physics.common', 'utils.math'], function() {
         elation.physics.colliders.helperfuncs.closest_point_on_triangle(sphere.body.positionWorld, p1, p2, p3, triangleClosestPoint);
         let triangleDistSquared = triangleClosestPoint.distanceToSquared(sphere.body.positionWorld)
         if (triangleDistSquared < sphere.radius * sphere.radius && velNormal <= 0) {
+          // Compute collision normal pointing from triangle toward sphere (not the face normal)
+          let collisionNormal = sphere.body.positionWorld.clone().sub(triangleClosestPoint); // allocate normal
+          let dist = Math.sqrt(triangleDistSquared);
+          if (dist > 1e-6) {
+            collisionNormal.divideScalar(dist);
+          } else {
+            // Degenerate case - sphere center is exactly on triangle, use face normal
+            // but ensure it points toward the sphere (away from the triangle's front face)
+            collisionNormal.copy(normal);
+            // Check which side the sphere came from using velocity
+            if (velNormal > 0) {
+              collisionNormal.negate();
+            }
+          }
           let contact = new elation.physics.contact({
-            normal: normal.clone(), // allocate normal
+            normal: collisionNormal,
             point: triangleClosestPoint.clone(), // allocate point
-            penetration: Math.sqrt(triangleDistSquared) - sphere.radius,
+            penetration: dist - sphere.radius,
             bodies: [triangle.body, sphere.body],
             triangle: triangle
           });
@@ -1084,8 +2098,16 @@ elation.require(['physics.common', 'utils.math'], function() {
         let intersectionPlane = elation.physics.colliders.helperfuncs.line_plane(sphereClosestPointToPlane, endpos, p1, p2, p3, intersectionPoint);
         if (intersectionPlane && triangle.containsPoint(intersectionPlane.point)) {
           // If the intersection point is inside of our triangle, we've collided with the triangle's face
+          // Compute collision normal pointing from triangle toward sphere (based on approach direction)
+          // The sphere is approaching from the direction opposite to its velocity
+          let collisionNormal = normal.clone(); // allocate normal
+          // If velocity is going WITH the normal (same direction), the sphere is on the back side
+          // and we need to flip the normal to point toward the sphere
+          if (velNormal > 0) {
+            collisionNormal.negate();
+          }
           let contact = new elation.physics.contact_dynamic({
-            normal: normal.clone(), // allocate normal
+            normal: collisionNormal,
             point: intersectionPlane.point.clone(), // allocate point
             penetrationTime: intersectionPlane.t,
             bodies: [triangle.body, sphere.body],
@@ -1159,6 +2181,7 @@ elation.require(['physics.common', 'utils.math'], function() {
         //triangle.body.localToWorldDir(normal.copy(triangle.normal));
 
         const capsuleDims = capsule.getDimensions();
+        const scaledRadius = capsuleDims.scaledRadius;
         capsuleNormal.subVectors(capsuleDims.end, capsuleDims.start).normalize();
         localSphere.position.copy(capsule.body.position);
         localSphere.positionWorld.copy(capsule.body.positionWorld);
@@ -1178,10 +2201,11 @@ elation.require(['physics.common', 'utils.math'], function() {
         localSphere.positionWorld.copy(localSphere.position);
 
         // Perform a sphere/triangle intersection test with our sphere
+        // Use the scaled radius from getDimensions
         if (!localSphere.collider) {
-            localSphere.setCollider('sphere', { radius: capsule.radius * 2});
+            localSphere.setCollider('sphere', { radius: scaledRadius });
         } else {
-          localSphere.collider.radius = capsule.radius * 2;
+          localSphere.collider.radius = scaledRadius;
         }
         localSphere.orientation.copy(capsule.body.orientation);
         localSphere.orientationWorld.copy(capsule.body.orientationWorld);
@@ -1252,8 +2276,13 @@ elation.require(['physics.common', 'utils.math'], function() {
         elation.physics.colliders.helperfuncs.capsule_sphere(capsule, mesh.boundingSphere, spherecontacts, dt);
         if (spherecontacts.length == 0) return;
 
+        // Get scaled capsule dimensions for distance culling
+        let capsuleDims = capsule.getDimensions();
+        let scaledLength = capsuleDims.start.distanceTo(capsuleDims.end);
+        let scaledRadius = capsuleDims.scaledRadius;
+
         let capsulepos = capsule.body.positionWorld,
-            capsuleMaxDist = Math.pow(capsule.length + capsule.radius, 2);
+            capsuleMaxDist = Math.pow(scaledLength + scaledRadius, 2);
         for (var i = 0; i < mesh.triangles.length; i++) {
           let triangle = mesh.triangles[i],
               worldpoints = triangle.getWorldPoints(),
@@ -1295,6 +2324,286 @@ elation.require(['physics.common', 'utils.math'], function() {
       }
     }();
 
+    this.triangle_cylinder = function() {
+      // Scratch variables
+      const cylAxisStart = new THREE.Vector3(),
+            cylAxisEnd = new THREE.Vector3(),
+            closestOnAxis = new THREE.Vector3(),
+            closestOnTriangle = new THREE.Vector3(),
+            diff = new THREE.Vector3(),
+            lineDir = new THREE.Vector3(),
+            tmpVec = new THREE.Vector3(),
+            capCenter = new THREE.Vector3(),
+            capNormal = new THREE.Vector3(),
+            edgeStart = new THREE.Vector3(),
+            edgeEnd = new THREE.Vector3(),
+            closestOnEdge = new THREE.Vector3();
+
+      // Closest point on line segment to a point
+      function closestPointOnSegment(segStart, segEnd, point, out) {
+        lineDir.subVectors(segEnd, segStart);
+        var lenSq = lineDir.lengthSq();
+        if (lenSq < 1e-8) {
+          out.copy(segStart);
+          return 0;
+        }
+        var t = tmpVec.subVectors(point, segStart).dot(lineDir) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        out.copy(segStart).addScaledVector(lineDir, t);
+        return t;
+      }
+
+      return function(triangle, cylinder, contacts, dt) {
+        if (!contacts) contacts = [];
+
+        var halfHeight = cylinder.height / 2;
+        // Scale radius by body's world scale (max of X/Z since cylinder is Y-aligned)
+        var cylScale = cylinder.body.scaleWorld;
+        var cylRadius = cylinder.radius * Math.max(cylScale.x, cylScale.z);
+
+        // Get cylinder axis endpoints in world space
+        cylAxisStart.set(0, -halfHeight, 0);
+        cylAxisEnd.set(0, halfHeight, 0);
+        if (cylinder.offset) {
+          cylAxisStart.add(cylinder.offset);
+          cylAxisEnd.add(cylinder.offset);
+        }
+        cylinder.body.localToWorldPos(cylAxisStart);
+        cylinder.body.localToWorldPos(cylAxisEnd);
+
+        // Get triangle world points
+        const worldpoints = triangle.getWorldPoints();
+        const p1 = worldpoints.p1,
+              p2 = worldpoints.p2,
+              p3 = worldpoints.p3,
+              triNormal = worldpoints.normal;
+
+        var bestContact = null;
+        var bestPenetration = -Infinity;
+
+        // === Test 1: Barrel vs Triangle ===
+        // Find closest point on triangle to cylinder axis
+        // First, find where the axis intersects the triangle plane
+        capNormal.subVectors(cylAxisEnd, cylAxisStart).normalize();
+        var denom = triNormal.dot(capNormal);
+
+        if (Math.abs(denom) > 1e-6) {
+          // Axis is not parallel to triangle
+          var t = triNormal.dot(tmpVec.subVectors(p1, cylAxisStart)) / denom;
+          tmpVec.copy(cylAxisStart).addScaledVector(capNormal, t);
+        } else {
+          // Axis is parallel - use midpoint projected onto triangle plane
+          tmpVec.copy(cylAxisStart).add(cylAxisEnd).multiplyScalar(0.5);
+        }
+
+        // Find closest point on triangle to this intersection point
+        elation.physics.colliders.helperfuncs.closest_point_on_triangle(tmpVec, p1, p2, p3, closestOnTriangle);
+
+        // Find closest point on cylinder axis to that triangle point
+        closestPointOnSegment(cylAxisStart, cylAxisEnd, closestOnTriangle, closestOnAxis);
+
+        // Iterate to refine (like capsule_box)
+        for (var iter = 0; iter < 2; iter++) {
+          elation.physics.colliders.helperfuncs.closest_point_on_triangle(closestOnAxis, p1, p2, p3, closestOnTriangle);
+          closestPointOnSegment(cylAxisStart, cylAxisEnd, closestOnTriangle, closestOnAxis);
+        }
+        elation.physics.colliders.helperfuncs.closest_point_on_triangle(closestOnAxis, p1, p2, p3, closestOnTriangle);
+
+        // Check barrel collision
+        diff.subVectors(closestOnAxis, closestOnTriangle);
+        var dist = diff.length();
+
+        if (dist < cylRadius && dist > 1e-6) {
+          var penetration = -(cylRadius - dist);
+          if (penetration > bestPenetration) {
+            bestPenetration = penetration;
+
+            // Normal from cylinder toward triangle (bodies[0] toward bodies[1])
+            var normal = closestOnTriangle.clone().sub(closestOnAxis).normalize();
+
+            // Contact point on cylinder surface
+            var contactPoint = closestOnAxis.clone().addScaledVector(normal, cylRadius);
+
+            bestContact = {
+              point: contactPoint,
+              normal: normal,
+              penetration: penetration
+            };
+          }
+        }
+
+        // === Test 2: Caps vs Triangle ===
+        var caps = [
+          { center: cylAxisStart.clone(), sign: -1 },
+          { center: cylAxisEnd.clone(), sign: 1 }
+        ];
+
+        for (var c = 0; c < 2; c++) {
+          var cap = caps[c];
+
+          // Distance from cap center to triangle plane
+          var distToPlane = triNormal.dot(tmpVec.subVectors(cap.center, p1));
+
+          // Cap normal points outward from cylinder
+          var capDir = capNormal.clone().multiplyScalar(cap.sign);
+
+          // Check if the cap is facing toward the triangle (cap normal and triangle normal opposing)
+          var facing = capDir.dot(triNormal);
+
+          if (Math.abs(distToPlane) < cylRadius && facing < 0) {
+            // Cap might intersect triangle
+            // Project cap center onto triangle plane
+            tmpVec.copy(cap.center).addScaledVector(triNormal, -distToPlane);
+
+            // Find closest point on triangle to this projected point
+            elation.physics.colliders.helperfuncs.closest_point_on_triangle(tmpVec, p1, p2, p3, closestOnTriangle);
+
+            // Check if this point is within the cap disk radius
+            diff.subVectors(closestOnTriangle, cap.center);
+            var distAlongAxis = diff.dot(capNormal) * cap.sign;
+            var radialDist = diff.clone().addScaledVector(capNormal, -diff.dot(capNormal)).length();
+
+            if (radialDist <= cylRadius && distAlongAxis >= 0 && distAlongAxis < cylRadius) {
+              var penetration = -distAlongAxis;
+              if (penetration > bestPenetration) {
+                bestPenetration = penetration;
+
+                // Normal points from cylinder cap toward triangle
+                // capDir is the outward normal of the cap, which points toward the triangle
+                var normal = capDir.clone();
+
+                bestContact = {
+                  point: closestOnTriangle.clone(),
+                  normal: normal,
+                  penetration: penetration
+                };
+              }
+            }
+          }
+        }
+
+        // === Test 3: Cylinder barrel vs Triangle edges ===
+        var edges = [
+          [p1, p2],
+          [p2, p3],
+          [p3, p1]
+        ];
+
+        for (var e = 0; e < 3; e++) {
+          edgeStart.copy(edges[e][0]);
+          edgeEnd.copy(edges[e][1]);
+
+          // Find closest points between cylinder axis and triangle edge
+          // Using iterative approach
+          closestPointOnSegment(cylAxisStart, cylAxisEnd, edgeStart, closestOnAxis);
+          for (var iter = 0; iter < 3; iter++) {
+            closestPointOnSegment(edgeStart, edgeEnd, closestOnAxis, closestOnEdge);
+            closestPointOnSegment(cylAxisStart, cylAxisEnd, closestOnEdge, closestOnAxis);
+          }
+          closestPointOnSegment(edgeStart, edgeEnd, closestOnAxis, closestOnEdge);
+
+          diff.subVectors(closestOnAxis, closestOnEdge);
+          dist = diff.length();
+
+          if (dist < cylRadius && dist > 1e-6) {
+            var penetration = -(cylRadius - dist);
+            if (penetration > bestPenetration) {
+              bestPenetration = penetration;
+
+              // Normal from cylinder toward edge
+              var normal = closestOnEdge.clone().sub(closestOnAxis).normalize();
+              var contactPoint = closestOnAxis.clone().addScaledVector(normal, cylRadius);
+
+              bestContact = {
+                point: contactPoint,
+                normal: normal,
+                penetration: penetration
+              };
+            }
+          }
+        }
+
+        if (bestContact) {
+          var contact = new elation.physics.contact({
+            point: bestContact.point,
+            normal: bestContact.normal,
+            penetration: bestContact.penetration,
+            bodies: [cylinder.body, triangle.body]
+          });
+          contacts.push(contact);
+        }
+
+        return contacts;
+      };
+    }();
+
+    this.cylinder_triangle = function(cylinder, triangle, contacts, dt) {
+      return this.triangle_cylinder(triangle, cylinder, contacts, dt);
+    };
+
+    this.mesh_cylinder = function() {
+      return function(mesh, cylinder, contacts, dt) {
+        if (!contacts) contacts = [];
+        var localcontacts = [], spherecontacts = [];
+
+        // Broad phase: check against mesh bounding sphere
+        elation.physics.colliders.helperfuncs.cylinder_sphere(cylinder, mesh.boundingSphere, spherecontacts, dt);
+        if (spherecontacts.length == 0) return contacts;
+
+        // Get scaled cylinder dimensions for triangle culling
+        var cylScale = cylinder.body.scaleWorld;
+        var scaledHeight = cylinder.height * cylScale.y;
+        var scaledRadius = cylinder.radius * Math.max(cylScale.x, cylScale.z);
+
+        let cylPos = cylinder.body.positionWorld,
+            cylMaxDist = Math.pow(scaledHeight / 2 + scaledRadius, 2);
+
+        // Test each triangle
+        for (var i = 0; i < mesh.triangles.length; i++) {
+          let triangle = mesh.triangles[i],
+              worldpoints = triangle.getWorldPoints(),
+              distToCenter = worldpoints.center.distanceToSquared(cylPos);
+
+          if (distToCenter <= cylMaxDist + worldpoints.radius * worldpoints.radius) {
+            elation.physics.colliders.helperfuncs.triangle_cylinder(triangle, cylinder, localcontacts, dt);
+          }
+        }
+
+        if (localcontacts.length > 0) {
+          let closestStatic = false,
+              closestDynamic = false;
+
+          for (let i = 0; i < localcontacts.length; i++) {
+            let contact = localcontacts[i];
+            if (contact instanceof elation.physics.contact_dynamic) {
+              if (!closestDynamic || closestDynamic.penetrationTime > contact.penetrationTime) {
+                closestDynamic = contact;
+              }
+            } else {
+              if (!closestStatic || closestStatic.penetration > contact.penetration) {
+                closestStatic = contact;
+              }
+            }
+          }
+
+          // Handle static contacts first, since they're equivalent to penetrationTime=0
+          let closest = closestStatic || closestDynamic;
+          if (closest.bodies[0] === cylinder.body) {
+            closest.bodies[1] = mesh.getRoot();
+          } else if (closest.bodies[1] === cylinder.body) {
+            closest.bodies[0] = mesh.getRoot();
+            closest.bodies[1] = cylinder.body;
+          }
+          contacts.push(closest);
+        }
+
+        return contacts;
+      };
+    }();
+
+    this.cylinder_mesh = function(cylinder, mesh, contacts, dt) {
+      return this.mesh_cylinder(mesh, cylinder, contacts, dt);
+    };
 
     this.closest_point_on_sphere = function(point, center, radius, closest) {
       if (!closest) closest = new THREE.Vector3();
@@ -1668,12 +2977,21 @@ elation.require(['physics.common', 'utils.math'], function() {
       return contacts;
     }
     this.getInertialMoment = function() {
-      var c = 5 / (2 * this.body.mass * this.radius * this.radius);
       this.momentInverse = new THREE.Matrix4();
+      // For static objects (mass=0), return zero matrix (infinite inertia = zero inverse)
+      if (this.body.mass <= 0) {
+        this.momentInverse.set(
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 1);
+        return this.momentInverse;
+      }
+      var c = 5 / (2 * this.body.mass * this.radius * this.radius);
       this.momentInverse.set(
-        c, 0, 0, 0, 
-        0, c, 0, 0, 
-        0, 0, c, 0, 
+        c, 0, 0, 0,
+        0, c, 0, 0,
+        0, 0, c, 0,
         0, 0, 0, 1);
       return this.momentInverse;
     }
@@ -1711,7 +3029,13 @@ elation.require(['physics.common', 'utils.math'], function() {
       return contacts;
     }
     this.getInertialMoment = function() {
-      this.momentInverse = new THREE.Matrix4().identity();
+      // Planes are always static - return zero matrix (infinite inertia)
+      this.momentInverse = new THREE.Matrix4();
+      this.momentInverse.set(
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 1);
       return this.momentInverse;
     }
     this.toJSON = function() {
@@ -1747,22 +3071,37 @@ elation.require(['physics.common', 'utils.math'], function() {
         contacts = elation.physics.colliders.helperfuncs.box_box(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.cylinder) {
         contacts = elation.physics.colliders.helperfuncs.cylinder_box(other, this, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.capsule) {
+        contacts = elation.physics.colliders.helperfuncs.box_capsule(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.triangle) {
+        contacts = elation.physics.colliders.helperfuncs.box_triangle(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.mesh) {
+        contacts = elation.physics.colliders.helperfuncs.box_mesh(this, other, contacts, dt);
       } else {
         //console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
       }
       return contacts;
     }
     this.getInertialMoment = function() {
+      this.momentInverse = new THREE.Matrix4();
+      // For static objects (mass=0), return zero matrix (infinite inertia = zero inverse)
+      if (this.body.mass <= 0) {
+        this.momentInverse.set(
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 1);
+        return this.momentInverse;
+      }
       var diff = this.max.clone().sub(this.min);
       var xsq = diff.x*diff.x,
           ysq = diff.y*diff.y,
           zsq = diff.z*diff.z,
           m = 1/12 * this.body.mass;
-      this.momentInverse = new THREE.Matrix4();
       this.momentInverse.set(
-        1 / (m * (ysq + zsq)), 0, 0, 0, 
-        0, 1 / (m * (xsq + zsq)), 0, 0, 
-        0, 0, 1 / (m * (xsq + ysq)), 0, 
+        1 / (m * (ysq + zsq)), 0, 0, 0,
+        0, 1 / (m * (xsq + zsq)), 0, 0,
+        0, 0, 1 / (m * (xsq + ysq)), 0,
         0, 0, 0, 1);
       return this.momentInverse;
     }
@@ -1827,6 +3166,12 @@ elation.require(['physics.common', 'utils.math'], function() {
         contacts = elation.physics.colliders.helperfuncs.cylinder_box(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.cylinder) {
         contacts = elation.physics.colliders.helperfuncs.cylinder_cylinder(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.capsule) {
+        contacts = elation.physics.colliders.helperfuncs.cylinder_capsule(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.mesh) {
+        contacts = elation.physics.colliders.helperfuncs.cylinder_mesh(this, other, contacts, dt);
+      } else if (other instanceof elation.physics.colliders.triangle) {
+        contacts = elation.physics.colliders.helperfuncs.cylinder_triangle(this, other, contacts, dt);
       } else {
         console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
       }
@@ -1834,15 +3179,28 @@ elation.require(['physics.common', 'utils.math'], function() {
     }
     this.getInertialMoment = function() {
       this.momentInverse = new THREE.Matrix4();
+      // For static objects (mass=0), return zero matrix (infinite inertia = zero inverse)
+      if (this.body.mass <= 0) {
+        this.momentInverse.set(
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 1);
+        return this.momentInverse;
+      }
+      // Solid cylinder moments of inertia (Y axis is the long axis):
+      //   I_y = (1/2) * m * r²  (around long axis)
+      //   I_x = I_z = (1/12) * m * (3r² + h²)  (perpendicular to long axis)
+      // We need the INVERSE for momentInverse
       var rsq = this.radius * this.radius,
           hsq = this.height * this.height,
-          m = this.body.mass,
-          i1 = (m * hsq / 12) + (m * rsq / 4),
-          i2 = m * rsq / 2;
+          m = this.body.mass;
+      var Iy = 0.5 * m * rsq;
+      var Ixz = (1/12) * m * (3 * rsq + hsq);
       this.momentInverse.set(
-        i1, 0, 0, 0, 
-        0, i2, 0, 0, 
-        0, 0, i1, 0, 
+        1 / Ixz, 0, 0, 0,
+        0, 1 / Iy, 0, 0,
+        0, 0, 1 / Ixz, 0,
         0, 0, 0, 1);
       return this.momentInverse;
     }
@@ -1883,26 +3241,36 @@ elation.require(['physics.common', 'utils.math'], function() {
         contacts = elation.physics.colliders.helperfuncs.mesh_capsule(other, this, contacts, dt);
       } else if (other instanceof elation.physics.colliders.capsule) {
         contacts = elation.physics.colliders.helperfuncs.capsule_capsule(this, other, contacts, dt);
-  /*
       } else if (other instanceof elation.physics.colliders.cylinder) {
-        contacts = elation.physics.colliders.helperfuncs.capsule_cylinder(this, other, contacts);
-      } else {
-        console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
-  */
+        contacts = elation.physics.colliders.helperfuncs.capsule_cylinder(this, other, contacts, dt);
       }
       return contacts;
     }
     this.getInertialMoment = function() {
       this.momentInverse = new THREE.Matrix4();
+      // For static objects (mass=0), return zero matrix (infinite inertia = zero inverse)
+      if (this.body.mass <= 0) {
+        this.momentInverse.set(
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 1);
+        return this.momentInverse;
+      }
+      // Capsule approximated as cylinder with hemispherical caps
+      // Moments of inertia (Y axis is the long axis):
+      //   I_y = (1/2) * m * r²  (around long axis)
+      //   I_x = I_z = (1/12) * m * (3r² + h²)  (perpendicular to long axis)
+      // We need the INVERSE for momentInverse
       var rsq = this.radius * this.radius,
           hsq = this.length * this.length,
-          m = this.body.mass,
-          i1 = (m * hsq / 12) + (m * rsq / 4),
-          i2 = m * rsq / 2;
+          m = this.body.mass;
+      var Iy = 0.5 * m * rsq;
+      var Ixz = (1/12) * m * (3 * rsq + hsq);
       this.momentInverse.set(
-        i1, 0, 0, 0, 
-        0, i2, 0, 0, 
-        0, 0, i1, 0, 
+        1 / Ixz, 0, 0, 0,
+        0, 1 / Iy, 0, 0,
+        0, 0, 1 / Ixz, 0,
         0, 0, 0, 1);
       return this.momentInverse;
     }
@@ -1910,6 +3278,10 @@ elation.require(['physics.common', 'utils.math'], function() {
       // TODO - cache these
       this.body.localToWorldPos(this.dimensions.start.set(0, 0, 0).add(this.offset));
       this.body.localToWorldPos(this.dimensions.end.set(0, this.length, 0).add(this.offset));
+      // Scale the radius by the body's world scale (use max of X/Z since capsule is Y-aligned)
+      var scaleWorld = this.body.scaleWorld;
+      this.dimensions.scaledRadius = this.radius * Math.max(scaleWorld.x, scaleWorld.z);
+      // Keep the old radius vector for compatibility, but also apply scale
       this.body.localToWorldDir(this.dimensions.radius.set(0, this.radius, 0));
       return this.dimensions;
     }
@@ -2080,29 +3452,22 @@ elation.require(['physics.common', 'utils.math'], function() {
         contacts = elation.physics.colliders.helperfuncs.mesh_sphere(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.capsule) {
         contacts = elation.physics.colliders.helperfuncs.mesh_capsule(this, other, contacts);
-  /*
       } else if (other instanceof elation.physics.colliders.box) {
-        contacts = elation.physics.colliders.helperfuncs.mesh_box(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.mesh_box(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.cylinder) {
-        contacts = elation.physics.colliders.helperfuncs.mesh_cylinder(this, other, contacts);
-      } else {
-        console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
-  */
+        contacts = elation.physics.colliders.helperfuncs.mesh_cylinder(this, other, contacts, dt);
       }
       return contacts;
     }
     this.getInertialMoment = function() {
       this.momentInverse = new THREE.Matrix4();
-      var rsq = this.radius * this.radius,
-          hsq = this.length * this.length,
-          m = this.body.mass,
-          i1 = (m * hsq / 12) + (m * rsq / 4),
-          i2 = m * rsq / 2;
-      // FIXME - this is not the inertial moment for a triangle
+      // Meshes are typically static geometry - return zero matrix (infinite inertia)
+      // For dynamic meshes, we'd need to compute inertia from the actual geometry
+      // which is expensive and rarely needed
       this.momentInverse.set(
-        1e10, 0, 0, 0,
-        0, 1e10, 0, 0,
-        0, 0, 1e10, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
         0, 0, 0, 1);
       return this.momentInverse;
     }
@@ -2177,29 +3542,21 @@ elation.require(['physics.common', 'utils.math'], function() {
         contacts = elation.physics.colliders.helperfuncs.triangle_sphere(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.capsule) {
         contacts = elation.physics.colliders.helperfuncs.triangle_capsule(this, other, contacts);
-  /*
       } else if (other instanceof elation.physics.colliders.box) {
-        contacts = elation.physics.colliders.helperfuncs.capsule_box(this, other, contacts);
+        contacts = elation.physics.colliders.helperfuncs.triangle_box(this, other, contacts, dt);
       } else if (other instanceof elation.physics.colliders.cylinder) {
-        contacts = elation.physics.colliders.helperfuncs.capsule_cylinder(this, other, contacts);
-      } else {
-        console.log("Error: can't handle " + this.type + "-" + other.type + " collisions yet!");
-  */
+        contacts = elation.physics.colliders.helperfuncs.triangle_cylinder(this, other, contacts, dt);
       }
       return contacts;
     }
     this.getInertialMoment = function() {
       this.momentInverse = new THREE.Matrix4();
-      var rsq = this.radius * this.radius,
-          hsq = this.length * this.length,
-          m = this.body.mass,
-          i1 = (m * hsq / 12) + (m * rsq / 4),
-          i2 = m * rsq / 2;
-      // FIXME - this is not the inertial moment for a triangle
+      // Triangles are typically static geometry (part of meshes) - return zero matrix
+      // This means they have infinite inertia and won't rotate from collisions
       this.momentInverse.set(
-        i1, 0, 0, 0,
-        0, i2, 0, 0,
-        0, 0, i1, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
+        0, 0, 0, 0,
         0, 0, 0, 1);
       return this.momentInverse;
     }
