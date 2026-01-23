@@ -59,7 +59,7 @@ elation.require(['physics.common', 'utils.math'], function() {
           let endpos = midline.copy(thispos).add(v);
 
           let intersection = elation.physics.colliders.helperfuncs.line_sphere(thispos, endpos, otherpos, r, intersectionPoint);
-          if (intersection && intersection.t <= r) {
+          if (intersection && intersection.t <= 1) {
             let t = intersection.t;
             thispos.add(scaledVelocity.copy(obj1.body.velocity).multiplyScalar(t * dt));
             otherpos.add(scaledVelocity.copy(obj2.body.velocity).multiplyScalar(t * dt));
@@ -130,11 +130,9 @@ elation.require(['physics.common', 'utils.math'], function() {
         // Transform sphere center to box's SCALED local space
         // (subtract position, apply inverse rotation, but do NOT divide by scale)
         // This matches the coordinate system of box.min/max which are pre-scaled
-        center.copy(centerWorld).sub(box.body.position);
-        if (box.body.orientation) {
-          invQuat.copy(box.body.orientation).invert();
-          center.applyQuaternion(invQuat);
-        }
+        center.copy(centerWorld).sub(box.body.positionWorld);
+        invQuat.copy(box.body.orientationWorld).invert();
+        center.applyQuaternion(invQuat);
 
         // box.min/max are already in scaled local space, and so is center now
         // sphere.radius is in world units which matches scaled local space
@@ -160,10 +158,8 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         // Transform closest point back to world space
         closestWorld.copy(closest);
-        if (box.body.orientation) {
-          closestWorld.applyQuaternion(box.body.orientation);
-        }
-        closestWorld.add(box.body.position);
+        closestWorld.applyQuaternion(box.body.orientationWorld);
+        closestWorld.add(box.body.positionWorld);
 
         var contact = new elation.physics.contact({
           point: closestWorld.clone(), // allocate point
@@ -510,16 +506,17 @@ elation.require(['physics.common', 'utils.math'], function() {
       var edge2Point = new THREE.Vector3();
       var closestOnEdge1 = new THREE.Vector3();
       var closestOnEdge2 = new THREE.Vector3();
+      var invQuat = new THREE.Quaternion();
       // Reusable projection results to avoid allocation
       var proj1 = { min: 0, max: 0 };
       var proj2 = { min: 0, max: 0 };
 
       // Get world-space axes for a box using orientationWorld for hierarchy support
+      // orientationWorld is local-to-world
       function getWorldAxes(box, axes) {
-        var orient = box.body.orientationWorld || box.body.orientation;
-        axes[0].set(1, 0, 0).applyQuaternion(orient);
-        axes[1].set(0, 1, 0).applyQuaternion(orient);
-        axes[2].set(0, 0, 1).applyQuaternion(orient);
+        axes[0].set(1, 0, 0).applyQuaternion(box.body.orientationWorld);
+        axes[1].set(0, 1, 0).applyQuaternion(box.body.orientationWorld);
+        axes[2].set(0, 0, 1).applyQuaternion(box.body.orientationWorld);
         return axes;
       }
 
@@ -530,10 +527,10 @@ elation.require(['physics.common', 'utils.math'], function() {
         out.addVectors(box.min, box.max).multiplyScalar(0.5);
         if (out.lengthSq() > 0) {
           // There's an offset - transform it to world space
-          var orient = box.body.orientationWorld || box.body.orientation;
-          out.applyQuaternion(orient);
+          // orientationWorld is local-to-world
+          out.applyQuaternion(box.body.orientationWorld);
         }
-        out.add(box.body.position);
+        out.add(box.body.positionWorld);
         return out;
       }
 
@@ -812,6 +809,7 @@ elation.require(['physics.common', 'utils.math'], function() {
       var triCenter = new THREE.Vector3();
       var diff = new THREE.Vector3();
       var contactNormal = new THREE.Vector3();
+      var invQuat = new THREE.Quaternion();
       var contactPoint = new THREE.Vector3();
       var tmpVec = new THREE.Vector3();
       var tmpVec2 = new THREE.Vector3();
@@ -871,18 +869,17 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         // Get box center and axes in world space
         // Box center from min/max (handles offset colliders)
+        // orientationWorld is local-to-world
         boxCenter.addVectors(box.min, box.max).multiplyScalar(0.5);
         if (boxCenter.lengthSq() > 0) {
-          var orient = box.body.orientationWorld || box.body.orientation;
-          boxCenter.applyQuaternion(orient);
+          boxCenter.applyQuaternion(box.body.orientationWorld);
         }
-        boxCenter.add(box.body.position);
+        boxCenter.add(box.body.positionWorld);
 
         // Box world axes
-        var orient = box.body.orientationWorld || box.body.orientation;
-        boxAxes[0].set(1, 0, 0).applyQuaternion(orient);
-        boxAxes[1].set(0, 1, 0).applyQuaternion(orient);
-        boxAxes[2].set(0, 0, 1).applyQuaternion(orient);
+        boxAxes[0].set(1, 0, 0).applyQuaternion(box.body.orientationWorld);
+        boxAxes[1].set(0, 1, 0).applyQuaternion(box.body.orientationWorld);
+        boxAxes[2].set(0, 0, 1).applyQuaternion(box.body.orientationWorld);
 
         // Vector from box center to triangle center
         diff.subVectors(triCenter, boxCenter);
@@ -1296,13 +1293,12 @@ elation.require(['physics.common', 'utils.math'], function() {
         cylinder.body.localToWorldPos(cylAxisEnd);
 
         // Transform to box's local space (where box is axis-aligned)
-        cylAxisStartLocal.copy(cylAxisStart).sub(box.body.position);
-        cylAxisEndLocal.copy(cylAxisEnd).sub(box.body.position);
-        if (box.body.orientation) {
-          invQuat.copy(box.body.orientation).invert();
-          cylAxisStartLocal.applyQuaternion(invQuat);
-          cylAxisEndLocal.applyQuaternion(invQuat);
-        }
+        // orientationWorld is local-to-world, invert for world-to-local
+        cylAxisStartLocal.copy(cylAxisStart).sub(box.body.positionWorld);
+        cylAxisEndLocal.copy(cylAxisEnd).sub(box.body.positionWorld);
+        invQuat.copy(box.body.orientationWorld).invert();
+        cylAxisStartLocal.applyQuaternion(invQuat);
+        cylAxisEndLocal.applyQuaternion(invQuat);
 
         var bestContact = null;
         var bestPenetration = -Infinity;
@@ -1329,22 +1325,19 @@ elation.require(['physics.common', 'utils.math'], function() {
             bestPenetration = penetration;
 
             // Transform contact back to world space
+            // orientationWorld is local-to-world
             var contactPointWorld = closestOnBox.clone();
-            if (box.body.orientation) {
-              contactPointWorld.applyQuaternion(box.body.orientation);
-            }
-            contactPointWorld.add(box.body.position);
+            contactPointWorld.applyQuaternion(box.body.orientationWorld);
+            contactPointWorld.add(box.body.positionWorld);
 
             var normal;
             if (dist > 1e-6) {
               // Normal from cylinder toward box (bodies[0] toward bodies[1])
               normal = closestOnBox.clone().sub(closestOnAxis).normalize();
-              if (box.body.orientation) {
-                normal.applyQuaternion(box.body.orientation);
-              }
+              normal.applyQuaternion(box.body.orientationWorld);
             } else {
               // Degenerate case - find direction from cylinder center to box center
-              normal = box.body.position.clone().sub(cylinder.body.position).normalize();
+              normal = box.body.positionWorld.clone().sub(cylinder.body.positionWorld).normalize();
             }
 
             bestContact = {
@@ -1399,18 +1392,14 @@ elation.require(['physics.common', 'utils.math'], function() {
                 bestPenetration = penetration;
 
                 var contactPointWorld = closestOnBox.clone();
-                if (box.body.orientation) {
-                  contactPointWorld.applyQuaternion(box.body.orientation);
-                }
-                contactPointWorld.add(box.body.position);
+                contactPointWorld.applyQuaternion(box.body.orientationWorld);
+                contactPointWorld.add(box.body.positionWorld);
 
                 // Normal from cylinder cap toward box (bodies[0] toward bodies[1])
                 // Normal should point outward from cap (the direction the cap faces)
                 // capNormal points from bottom to top, so cap's outward = capNormal * cap.sign
                 var normal = capNormal.clone().multiplyScalar(cap.sign);
-                if (box.body.orientation) {
-                  normal.applyQuaternion(box.body.orientation);
-                }
+                normal.applyQuaternion(box.body.orientationWorld);
 
                 bestContact = {
                   point: contactPointWorld,
@@ -1439,16 +1428,12 @@ elation.require(['physics.common', 'utils.math'], function() {
                   bestPenetration = penetration;
 
                   var contactPointWorld = closestOnBox.clone();
-                  if (box.body.orientation) {
-                    contactPointWorld.applyQuaternion(box.body.orientation);
-                  }
-                  contactPointWorld.add(box.body.position);
+                  contactPointWorld.applyQuaternion(box.body.orientationWorld);
+                  contactPointWorld.add(box.body.positionWorld);
 
                   // Normal from cylinder rim toward box (bodies[0] toward bodies[1])
                   var normal = diff.clone().normalize();
-                  if (box.body.orientation) {
-                    normal.applyQuaternion(box.body.orientation);
-                  }
+                  normal.applyQuaternion(box.body.orientationWorld);
 
                   bestContact = {
                     point: contactPointWorld,
@@ -1684,7 +1669,7 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, point, closest);
 
-        normal.subVectors(closest, point);
+        normal.subVectors(point, closest);
         const distance = normal.length();
 
         if (distance <= combinedRadius) {
@@ -1692,7 +1677,7 @@ elation.require(['physics.common', 'utils.math'], function() {
           let contact = new elation.physics.contact({
             normal: normal.clone(), // allocate normal
             point: closest.clone().add(normal.multiplyScalar(capsuleScaledRadius)), // allocate point
-            penetration: combinedRadius - distance,
+            penetration: distance - combinedRadius, // negative when overlapping
             bodies: [capsule.body, sphere.body]
           });
           contacts.push(contact);
@@ -1789,13 +1774,12 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         // Transform capsule endpoints to box's scaled local space
         // (same coordinate space as box.min/max)
-        startLocal.copy(startWorld).sub(box.body.position);
-        endLocal.copy(endWorld).sub(box.body.position);
-        if (box.body.orientation) {
-          invQuat.copy(box.body.orientation).invert();
-          startLocal.applyQuaternion(invQuat);
-          endLocal.applyQuaternion(invQuat);
-        }
+        // orientationWorld is local-to-world, invert for world-to-local
+        startLocal.copy(startWorld).sub(box.body.positionWorld);
+        endLocal.copy(endWorld).sub(box.body.positionWorld);
+        invQuat.copy(box.body.orientationWorld).invert();
+        startLocal.applyQuaternion(invQuat);
+        endLocal.applyQuaternion(invQuat);
 
         // Find closest point pair between capsule axis and box
         // Use iterative approach: alternate between finding closest on box and closest on line
@@ -1822,14 +1806,13 @@ elation.require(['physics.common', 'utils.math'], function() {
         var dist = Math.sqrt(distSq);
 
         // Transform points back to world space
+        // orientationWorld is local-to-world
         closestOnBoxWorld.copy(closestOnBox);
         closestOnCapsuleWorld.copy(closestOnCapsule);
-        if (box.body.orientation) {
-          closestOnBoxWorld.applyQuaternion(box.body.orientation);
-          closestOnCapsuleWorld.applyQuaternion(box.body.orientation);
-        }
-        closestOnBoxWorld.add(box.body.position);
-        closestOnCapsuleWorld.add(box.body.position);
+        closestOnBoxWorld.applyQuaternion(box.body.orientationWorld);
+        closestOnCapsuleWorld.applyQuaternion(box.body.orientationWorld);
+        closestOnBoxWorld.add(box.body.positionWorld);
+        closestOnCapsuleWorld.add(box.body.positionWorld);
 
         // Calculate normal (from box toward capsule)
         var normal;
@@ -1856,9 +1839,7 @@ elation.require(['physics.common', 'utils.math'], function() {
           if (distToMaxZ < minDist) { minDist = distToMaxZ; normal.set(0, 0, 1); }
 
           // Transform normal to world space
-          if (box.body.orientation) {
-            normal.applyQuaternion(box.body.orientation);
-          }
+          normal.applyQuaternion(box.body.orientationWorld);
         }
 
         // Contact point is on the box surface
@@ -4175,13 +4156,9 @@ elation.require(['physics.common', 'utils.math'], function() {
 
       if (!elation.events.wasDefaultPrevented(events)) {
         // If no event handlers handled this event, use our default collision response
-
-        // Apply velocity impulse if there's actual penetration
-        // (penetration < 0 means objects are overlapping)
-        if (this.penetration < 0) {
-          this.applyVelocityChange(t, a, b);
-          this.finalizeMovement(t, a, b);
-        }
+        // For dynamic contacts (predictive collisions), always apply velocity change
+        this.applyVelocityChange(t, a, b);
+        this.finalizeMovement(t, a, b);
         events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[0], data: this}));
         events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[1], data: this}));
       }
