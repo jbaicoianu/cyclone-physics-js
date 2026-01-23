@@ -539,7 +539,7 @@ elation.require(['physics.common', 'utils.math'], function() {
 
       // Project box onto axis, storing result in outProj to avoid allocation
       function projectBox(box, boxCenter, boxAxes, axis, outProj) {
-        var halfExtents = box.halfsize; // pre-scaled
+        var halfExtents = box.halfsize; // pre-scaled at collider creation time
         var centerProj = boxCenter.dot(axis);
 
         // Project each axis extent onto the test axis
@@ -1072,6 +1072,11 @@ elation.require(['physics.common', 'utils.math'], function() {
       return function(mesh, box, contacts, dt) {
         if (!contacts) contacts = [];
 
+        // Lazy triangle extraction - if mesh has geometry but no triangles, try extracting now
+        if (mesh.triangles.length === 0 && ((mesh.mesh && mesh.mesh.geometry) || mesh.modeldata)) {
+          mesh.triangles = mesh.extractTriangles(mesh.mesh);
+        }
+
         // Broad phase: check box against mesh bounding sphere
         // Compute box bounding sphere radius
         var boxDiag = Math.sqrt(
@@ -1084,7 +1089,10 @@ elation.require(['physics.common', 'utils.math'], function() {
         var boxCenter = box.body.positionWorld;
         var meshCenter = mesh.body.positionWorld;
         var centerDist = boxCenter.distanceTo(meshCenter);
-        var maxDist = boxDiag + mesh.boundingSphere.radius;
+        // Compute scaled bounding radius dynamically from current scaleWorld
+        var meshScale = mesh.body.scaleWorld;
+        var scaledMeshRadius = (mesh.localRadius || mesh.radius) * Math.max(meshScale.x, meshScale.y, meshScale.z);
+        var maxDist = boxDiag + scaledMeshRadius;
 
         if (centerDist > maxDist) {
           return false; // Too far apart
@@ -2222,7 +2230,16 @@ elation.require(['physics.common', 'utils.math'], function() {
     }();
     this.mesh_sphere = function() {
       return function(mesh, sphere, contacts, dt) {
+        // Lazy triangle extraction - if mesh has geometry but no triangles, try extracting now
+        if (mesh.triangles.length === 0 && mesh.mesh && mesh.mesh.geometry) {
+          mesh.triangles = mesh.extractTriangles(mesh.mesh);
+        }
+
         var localcontacts = [], spherecontacts = [];
+
+        // Update bounding sphere radius dynamically from current scale
+        var meshScale = mesh.body.scaleWorld;
+        mesh.boundingSphere.radius = (mesh.localRadius || mesh.radius) * Math.max(meshScale.x, meshScale.y, meshScale.z);
 
         elation.physics.colliders.helperfuncs.sphere_sphere(sphere, mesh.boundingSphere, spherecontacts, dt);
         if (spherecontacts.length == 0) return;
@@ -2271,7 +2288,16 @@ elation.require(['physics.common', 'utils.math'], function() {
     }();
     this.mesh_capsule = function() {
       return function(mesh, capsule, contacts, dt) {
+        // Lazy triangle extraction - if mesh has geometry but no triangles, try extracting now
+        if (mesh.triangles.length === 0 && mesh.mesh && mesh.mesh.geometry) {
+          mesh.triangles = mesh.extractTriangles(mesh.mesh);
+        }
+
         var localcontacts = [], spherecontacts = [];
+
+        // Update bounding sphere radius dynamically from current scale
+        var meshScale = mesh.body.scaleWorld;
+        mesh.boundingSphere.radius = (mesh.localRadius || mesh.radius) * Math.max(meshScale.x, meshScale.y, meshScale.z);
 
         elation.physics.colliders.helperfuncs.capsule_sphere(capsule, mesh.boundingSphere, spherecontacts, dt);
         if (spherecontacts.length == 0) return;
@@ -2544,7 +2570,17 @@ elation.require(['physics.common', 'utils.math'], function() {
     this.mesh_cylinder = function() {
       return function(mesh, cylinder, contacts, dt) {
         if (!contacts) contacts = [];
+
+        // Lazy triangle extraction - if mesh has geometry but no triangles, try extracting now
+        if (mesh.triangles.length === 0 && mesh.mesh && mesh.mesh.geometry) {
+          mesh.triangles = mesh.extractTriangles(mesh.mesh);
+        }
+
         var localcontacts = [], spherecontacts = [];
+
+        // Update bounding sphere radius dynamically from current scale
+        var meshScale = mesh.body.scaleWorld;
+        mesh.boundingSphere.radius = (mesh.localRadius || mesh.radius) * Math.max(meshScale.x, meshScale.y, meshScale.z);
 
         // Broad phase: check against mesh bounding sphere
         elation.physics.colliders.helperfuncs.cylinder_sphere(cylinder, mesh.boundingSphere, spherecontacts, dt);
@@ -3394,7 +3430,9 @@ elation.require(['physics.common', 'utils.math'], function() {
           }
         }
       }
-      this.radius = Math.sqrt(radiusSq) * Math.max(this.body.scaleWorld.x, this.body.scaleWorld.y, this.body.scaleWorld.z);
+      // Store unscaled local radius - will be scaled dynamically when needed
+      this.localRadius = Math.sqrt(radiusSq);
+      this.radius = this.localRadius * Math.max(this.body.scaleWorld.x, this.body.scaleWorld.y, this.body.scaleWorld.z);
       this.boundingSphere.radius = this.radius;
       return triangles;
     }
@@ -3600,9 +3638,11 @@ elation.require(['physics.common', 'utils.math'], function() {
     this.getWorldPoints = function() {
       // check to see if world points are cached, and if the cache is still valid
       // TODO - it really makes more sense for this cache to be on the mesh, and for the mesh to update these cached values as needed
-      if (!(this.cache.orientationWorld.equals(this.body.orientationWorld) && this.cache.scaleWorld.equals(this.body.scaleWorld))) {
+      // For root objects (no parent), scaleWorld might not be updated yet, so also compare against scale directly
+      var bodyScale = this.body.parent ? this.body.scaleWorld : this.body.scale;
+      if (!(this.cache.orientationWorld.equals(this.body.orientationWorld) && this.cache.scaleWorld.equals(bodyScale))) {
         this.cache.orientationWorld.copy(this.body.orientationWorld);
-        this.cache.scaleWorld.copy(this.body.scaleWorld);
+        this.cache.scaleWorld.copy(bodyScale);
         this.body.localToWorldPos(this.cache.points.p1.copy(this.p1));
         this.body.localToWorldPos(this.cache.points.p2.copy(this.p2));
         this.body.localToWorldPos(this.cache.points.p3.copy(this.p3));
@@ -3682,6 +3722,17 @@ elation.require(['physics.common', 'utils.math'], function() {
      */
     this.resolve = function(t, a, b) {
       this.restitution = this.bodies[0].restitution * this.bodies[1].restitution;
+
+      // Calculate friction from body materials (use geometric mean, or max if one is zero)
+      var friction0 = this.bodies[0].material ? this.bodies[0].material.dynamicfriction : 0;
+      var friction1 = this.bodies[1].material ? this.bodies[1].material.dynamicfriction : 0;
+      if (friction0 > 0 && friction1 > 0) {
+        this.friction = Math.sqrt(friction0 * friction1);
+      } else {
+        // If either has zero friction, use the max (allows one rough surface to create friction)
+        this.friction = Math.max(friction0, friction1);
+      }
+
       if (!this.initialized) {
         this.calculateInternals(t);
         this.initialized = true;
@@ -3693,8 +3744,13 @@ elation.require(['physics.common', 'utils.math'], function() {
       if (!elation.events.wasDefaultPrevented(events)) {
         // If no event handlers handled this event, use our default collision response
         this.applyPositionChange(t, a, b);
-        this.applyVelocityChange(t, a, b);
-        this.finalizeMovement(t, a, b);
+
+        // Apply velocity impulse if there's actual penetration
+        // (penetration < 0 means objects are overlapping)
+        if (this.penetration < 0) {
+          this.applyVelocityChange(t, a, b);
+          this.finalizeMovement(t, a, b);
+        }
         events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[0], data: this}));
         events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[1], data: this}));
       }
@@ -3821,6 +3877,31 @@ elation.require(['physics.common', 'utils.math'], function() {
           this.impulses[0] = impulsiveForce.clone(); // allocation (FIXME - only needed for debug)
           this.bodies[0].addVelocity(impulsiveForce);
           this.bodies[0].addAngularVelocity(impulsiveTorque);
+
+          // Rolling friction: a torque opposing rotation, proportional to normal force
+          // This models energy loss from material deformation at the contact
+          var Crr0 = this.bodies[0].material ? this.bodies[0].material.rollingfriction : 0;
+          var Crr1 = this.bodies[1] && this.bodies[1].material ? this.bodies[1].material.rollingfriction : 0;
+          var Crr = Math.max(Crr0, Crr1); // Use the higher rolling friction
+          if (Crr > 0) {
+            var normalForceMag = Math.abs(impulse.dot(this.normal));
+            var angularSpeed = this.bodies[0].angular.length();
+            if (angularSpeed > 0.001) {
+              // Rolling friction torque magnitude = Crr * radius * normalForce
+              // For simplicity, assume effective radius of ~0.5 for unit-sized objects
+              var effectiveRadius = 0.5;
+              var resistanceTorqueMag = Crr * effectiveRadius * normalForceMag;
+              // Apply as angular impulse opposing rotation (divide by moment of inertia)
+              // Approximate I = m/6 for a cube
+              var approxI = this.bodies[0].mass / 6;
+              var angularImpulseMag = resistanceTorqueMag; // This is already in torque*time units since normalForce is impulse
+              // Limit to not reverse angular velocity
+              angularImpulseMag = Math.min(angularImpulseMag, angularSpeed * approxI);
+              // Apply opposing angular velocity
+              var angularDamping = this.bodies[0].angular.clone().normalize().multiplyScalar(-angularImpulseMag / approxI);
+              this.bodies[0].angular.add(angularDamping);
+            }
+          }
         }
 
         if (this.bodies[1] && this.bodies[1].mass > 0) {
@@ -3830,6 +3911,23 @@ elation.require(['physics.common', 'utils.math'], function() {
 
           this.bodies[1].addVelocity(impulsiveForce);
           this.bodies[1].addAngularVelocity(impulsiveTorque);
+
+          // Rolling friction for body 1
+          var Crr0 = this.bodies[0].material ? this.bodies[0].material.rollingfriction : 0;
+          var Crr1 = this.bodies[1].material ? this.bodies[1].material.rollingfriction : 0;
+          var Crr = Math.max(Crr0, Crr1);
+          if (Crr > 0) {
+            var normalForceMag = Math.abs(impulse.dot(this.normal));
+            var angularSpeed = this.bodies[1].angular.length();
+            if (angularSpeed > 0.001) {
+              var effectiveRadius = 0.5;
+              var resistanceTorqueMag = Crr * effectiveRadius * normalForceMag;
+              var approxI = this.bodies[1].mass / 6;
+              var angularImpulseMag = Math.min(resistanceTorqueMag, angularSpeed * approxI);
+              var angularDamping = this.bodies[1].angular.clone().normalize().multiplyScalar(-angularImpulseMag / approxI);
+              this.bodies[1].angular.add(angularDamping);
+            }
+          }
         }
       }
     }();
@@ -3858,8 +3956,91 @@ elation.require(['physics.common', 'utils.math'], function() {
     }();
 
     this.calculateFrictionImpulse = function() {
+      // Closure scratch variables
+      var deltaVelWorld = new THREE.Vector3();
+      var impulseContact = new THREE.Vector3();
+      var tangent = new THREE.Vector3();
+
       return function() {
         var impulse = new THREE.Vector3();
+        var inverseMass = 0;
+
+        // Build a matrix that converts impulse in contact coords to velocity change in contact coords
+        // This is a 3x3 matrix, but we'll compute the diagonal terms for a simplified approach
+
+        // For each body, calculate the contribution to velocity change per unit impulse
+        // in each of the three contact-space directions (tangent X, normal Y, tangent Z)
+        var deltaVelX = 0, deltaVelY = 0, deltaVelZ = 0;
+
+        for (var i = 0; i < this.bodies.length; i++) {
+          if (this.bodies[i] && this.bodies[i].mass > 0) {
+            inverseMass += 1 / this.bodies[i].mass;
+
+            // Angular component for normal (Y) direction
+            deltaVelWorld.crossVectors(this.relativePositions[i], this.normal);
+            deltaVelWorld.applyMatrix4(this.inertialMoments[i]);
+            deltaVelWorld.cross(this.relativePositions[i]);
+            deltaVelY += deltaVelWorld.dot(this.normal);
+
+            // For tangent directions, we need to use the contact matrix columns
+            // Column 0 = tangent X direction in world space
+            // Column 2 = tangent Z direction in world space
+            var tangentX = new THREE.Vector3(
+              this.contactToWorld.elements[0],
+              this.contactToWorld.elements[1],
+              this.contactToWorld.elements[2]
+            );
+            var tangentZ = new THREE.Vector3(
+              this.contactToWorld.elements[8],
+              this.contactToWorld.elements[9],
+              this.contactToWorld.elements[10]
+            );
+
+            // Angular component for tangent X direction
+            deltaVelWorld.crossVectors(this.relativePositions[i], tangentX);
+            deltaVelWorld.applyMatrix4(this.inertialMoments[i]);
+            deltaVelWorld.cross(this.relativePositions[i]);
+            deltaVelX += deltaVelWorld.dot(tangentX);
+
+            // Angular component for tangent Z direction
+            deltaVelWorld.crossVectors(this.relativePositions[i], tangentZ);
+            deltaVelWorld.applyMatrix4(this.inertialMoments[i]);
+            deltaVelWorld.cross(this.relativePositions[i]);
+            deltaVelZ += deltaVelWorld.dot(tangentZ);
+          }
+        }
+
+        // Add linear (mass) contribution
+        deltaVelX += inverseMass;
+        deltaVelY += inverseMass;
+        deltaVelZ += inverseMass;
+
+        // Calculate impulse needed for each direction
+        // Normal impulse (Y) - same as frictionless case
+        var impulseY = this.desiredDeltaVelocity / deltaVelY;
+
+        // Tangential impulses needed to stop sliding
+        // velocity.x and velocity.z are the tangential velocities in contact space
+        var impulseX = -this.velocity.x / deltaVelX;
+        var impulseZ = -this.velocity.z / deltaVelZ;
+
+        // Calculate the magnitude of tangential impulse
+        var tangentMagnitude = Math.sqrt(impulseX * impulseX + impulseZ * impulseZ);
+
+        // Maximum tangential impulse allowed by friction (Coulomb friction)
+        var maxFriction = this.friction * Math.abs(impulseY);
+
+        if (tangentMagnitude > maxFriction && tangentMagnitude > 1e-6) {
+          // Sliding friction - scale tangential impulse to friction limit
+          var scale = maxFriction / tangentMagnitude;
+          impulseX *= scale;
+          impulseZ *= scale;
+        }
+        // else: static friction - use full tangential impulse to stop sliding
+
+        impulse.set(impulseX, impulseY, impulseZ);
+
+        return impulse;
       }
     }();
 
@@ -3971,6 +4152,16 @@ elation.require(['physics.common', 'utils.math'], function() {
      */
     this.resolve = function(t, a, b) {
       this.restitution = this.bodies[0].restitution * this.bodies[1].restitution;
+
+      // Calculate friction from body materials (use geometric mean, or max if one is zero)
+      var friction0 = this.bodies[0].material ? this.bodies[0].material.dynamicfriction : 0;
+      var friction1 = this.bodies[1].material ? this.bodies[1].material.dynamicfriction : 0;
+      if (friction0 > 0 && friction1 > 0) {
+        this.friction = Math.sqrt(friction0 * friction1);
+      } else {
+        this.friction = Math.max(friction0, friction1);
+      }
+
       if (!this.initialized) {
         this.calculateInternals(t);
         this.initialized = true;
@@ -3983,9 +4174,12 @@ elation.require(['physics.common', 'utils.math'], function() {
       events.push.apply(events, elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
 
       if (!elation.events.wasDefaultPrevented(events)) {
-        // If no event handlers handled this event, use our default collision response
-        this.applyVelocityChange(t, a, b);
-        this.finalizeMovement(t, a, b);
+        // Apply velocity impulse if there's actual penetration
+        // (penetration < 0 means objects are overlapping)
+        if (this.penetration < 0) {
+          this.applyVelocityChange(t, a, b);
+          this.finalizeMovement(t, a, b);
+        }
         events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[0], data: this}));
         events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[1], data: this}));
       }
