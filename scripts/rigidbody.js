@@ -26,6 +26,7 @@ elation.require(['physics.common'], function() {
       dynamicfriction: 0,
       staticfriction: 0,
       bounciness: 0,
+      rollingfriction: 0,  // Coefficient of rolling friction (typically 0.001-0.01 for hard surfaces)
     };
 
     this.parent = false;
