@@ -65,7 +65,7 @@ elation.require(['physics.common'], function() {
         this.positionWorld.copy(this.position).applyQuaternion(this._tmpquat.copy(this.parent.orientation).invert()).add(this.parent.positionWorld);
         this.scaleWorld.copy(this.scale).multiply(this.parent.scaleWorld);
       } else {
-        this.orientationWorld.copy(this.orientation).invert();
+        this.orientationWorld.copy(this.orientation);
         this.positionWorld.copy(this.position);
         this.scaleWorld.copy(this.scale);
       }
