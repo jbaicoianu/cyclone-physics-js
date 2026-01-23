@@ -4174,6 +4174,8 @@ elation.require(['physics.common', 'utils.math'], function() {
       events.push.apply(events, elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
 
       if (!elation.events.wasDefaultPrevented(events)) {
+        // If no event handlers handled this event, use our default collision response
+
         // Apply velocity impulse if there's actual penetration
         // (penetration < 0 means objects are overlapping)
         if (this.penetration < 0) {
