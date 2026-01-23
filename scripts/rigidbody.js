@@ -67,6 +67,7 @@ elation.require(['physics.common'], function() {
       } else {
         this.orientationWorld.copy(this.orientation).invert();
         this.positionWorld.copy(this.position);
+        this.scaleWorld.copy(this.scale);
       }
 
       this.state.forces = false;
