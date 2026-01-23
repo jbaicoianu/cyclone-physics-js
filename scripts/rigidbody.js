@@ -43,7 +43,14 @@ elation.require(['physics.common'], function() {
     this.init = function() {
       for (var k in args) {
         if (!elation.utils.isNull(args[k])) {
-          this[k] = args[k];
+          // Merge material properties instead of replacing the whole object
+          if (k === 'material' && typeof args[k] === 'object') {
+            for (var m in args[k]) {
+              this.material[m] = args[k][m];
+            }
+          } else {
+            this[k] = args[k];
+          }
         }
       }
       if (!this.id && this.object) this.id = this.object.objects['3d'].uuid;
