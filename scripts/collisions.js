@@ -1165,17 +1165,24 @@ elation.require(['physics.common', 'utils.math'], function() {
           return false;
         }
         var contact = false;
-        if (spherepos.y - cylinder.offset.y > -halfh && spherepos.y - cylinder.offset.y < halfh) {
+        var localY = spherepos.y - cylinder.offset.y;
+        var radialDist = Math.sqrt(lsq);
+
+        // Determine if we're hitting side, cap, or rim
+        // For rim hits, check if sphere center is near the corner
+        var nearCapEdge = Math.abs(localY) > halfh - rSphere && radialDist > rCylinder - rSphere;
+
+        if (!nearCapEdge && localY > -halfh && localY < halfh) {
           // Colliding with side of cylinder (center of sphere is between cylinder ends)
-          var penetration = (Math.sqrt(lsq) - rSphere - rCylinder) / 2;
+          var penetration = radialDist - rSphere - rCylinder; // negative when overlapping
           var normal = spherepos.clone(); // allocate normal
           normal.y = 0;
           normal.normalize();
-          var point = normal.clone().multiplyScalar(rCylinder + penetration); // allocate point
+          var point = normal.clone().multiplyScalar(rCylinder); // contact point on cylinder surface
           point.y = spherepos.y;
 
           contact = new elation.physics.contact({
-            normal: cylinder.body.localToWorldDir(normal).normalize(), 
+            normal: cylinder.body.localToWorldDir(normal).normalize(),
             point: cylinder.body.localToWorldPos(point),
             penetration: penetration,
             bodies: [cylinder.body, sphere.body]
@@ -1196,10 +1203,11 @@ elation.require(['physics.common', 'utils.math'], function() {
             var point = capline.clone().multiplyScalar(d); // allocate point
             point.y = sign * cylinder.height / 2;
             var penetration = spherepos.distanceTo(point) - sphere.radius;
-            
+            point.add(cylinder.offset); // apply offset in local space
+
             contact = new elation.physics.contact({
               normal: cylinder.body.localToWorldDir(up.clone().multiplyScalar(sign)).normalize(), // allocate normal
-              point: cylinder.body.localToWorldPos(point).add(cylinder.offset),
+              point: cylinder.body.localToWorldPos(point),
               penetration: penetration,
               bodies: [cylinder.body, sphere.body]
             });
@@ -1208,12 +1216,14 @@ elation.require(['physics.common', 'utils.math'], function() {
             //type = 'edge';
             capline.multiplyScalar(cylinder.radius);
             capline.y = sign * cylinder.height / 2;
-            var normal = new THREE.Vector3().subVectors(capline, spherepos); // allocate normal
-            var penetration = sphere.radius - normal.length();
-            normal.divideScalar(-penetration);
+            var normal = new THREE.Vector3().subVectors(spherepos, capline); // from edge toward sphere
+            var dist = normal.length();
+            normal.divideScalar(dist); // normalize
+            var penetration = dist - sphere.radius; // negative when overlapping
+            capline.add(cylinder.offset); // apply offset in local space
             contact = new elation.physics.contact({
-              normal: cylinder.body.localToWorldDir(normal).normalize().negate(), 
-              point: cylinder.body.localToWorldPos(capline.clone()).add(cylinder.offset), // allocate point
+              normal: cylinder.body.localToWorldDir(normal).normalize(),
+              point: cylinder.body.localToWorldPos(capline.clone()),
               penetration: penetration,
               bodies: [cylinder.body, sphere.body]
             });
@@ -1700,7 +1710,6 @@ elation.require(['physics.common', 'utils.math'], function() {
               capsule2ScaledRadius = capsule2.radius * Math.max(capsule2.body.scale.x, capsule2.body.scale.z);
 
         if (distSquared <= Math.pow(capsule1ScaledRadius + capsule2ScaledRadius, 2)) {
-          console.log('CAPSULE COLLIDE', capsule1, capsule2);
           let normal = new THREE.Vector3().subVectors(p2, p1),
               point = p1.clone();
               dist = Math.sqrt(distSquared);
