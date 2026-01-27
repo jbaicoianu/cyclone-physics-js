@@ -867,6 +867,23 @@ elation.require(['physics.common', 'utils.math'], function() {
         // Triangle center
         triCenter.copy(triVerts[0]).add(triVerts[1]).add(triVerts[2]).divideScalar(3);
 
+        // For double-sided triangles, flip normal if box is on the back side
+        // This ensures we collide correctly from either side without duplicating triangles
+        if (triangle.doubleSided) {
+          // Check which side of triangle plane the box center is on
+          // boxCenter isn't computed yet, so compute it temporarily
+          tmpVec.addVectors(box.min, box.max).multiplyScalar(0.5);
+          if (tmpVec.lengthSq() > 0) {
+            tmpVec.applyQuaternion(box.body.orientationWorld);
+          }
+          tmpVec.add(box.body.positionWorld);
+          // If box is on back side (negative side of plane), flip normal
+          var sideCheck = tmpVec.clone().sub(triVerts[0]).dot(triNormal);
+          if (sideCheck < 0) {
+            triNormal.negate();
+          }
+        }
+
         // Get box center and axes in world space
         // Box center from min/max (handles offset colliders)
         // orientationWorld is local-to-world
@@ -945,15 +962,70 @@ elation.require(['physics.common', 'utils.math'], function() {
           contactNormal.negate();
         }
 
-        // Calculate contact point
+        // Calculate contact point(s)
         if (minAxisType === 0) {
-          // Triangle normal was minimum - contact is on triangle face
-          // Find closest point on triangle to box center, clamped
-          elation.physics.colliders.helperfuncs.closest_point_on_triangle(
-            boxCenter, triVerts[0], triVerts[1], triVerts[2], contactPoint
-          );
-          // Move toward box by half penetration
-          contactPoint.addScaledVector(contactNormal, -minPenetration * 0.5);
+          // Triangle normal was minimum - box vertex vs triangle face contact
+          // Generate contact for EACH penetrating vertex (like Cyclone's boxAndHalfSpace)
+          var hs = [box.halfsize.x, box.halfsize.y, box.halfsize.z];
+
+          // First pass: collect all penetrating vertices inside triangle
+          var penetratingVertices = [];
+          var maxDepth = 0;
+
+          for (var vx = -1; vx <= 1; vx += 2) {
+            for (var vy = -1; vy <= 1; vy += 2) {
+              for (var vz = -1; vz <= 1; vz += 2) {
+                tmpVec.copy(boxCenter);
+                tmpVec.addScaledVector(boxAxes[0], vx * hs[0]);
+                tmpVec.addScaledVector(boxAxes[1], vy * hs[1]);
+                tmpVec.addScaledVector(boxAxes[2], vz * hs[2]);
+
+                // Calculate depth: how far the vertex is past the triangle plane toward the triangle
+                // Use contactNormal (points from box toward triangle) for correct sign
+                // signedDist > 0 means vertex is on the triangle side of the plane (penetrating)
+                var signedDist = tmpVec.clone().sub(triVerts[0]).dot(contactNormal);
+                var depth = signedDist;  // Positive when penetrating (vertex past plane toward triangle)
+
+                if (depth > 0) {
+                  // Project vertex onto triangle plane (move back along contactNormal)
+                  contactPoint.copy(tmpVec);
+                  contactPoint.addScaledVector(contactNormal, -depth);
+
+                  // Only count if projected point is inside triangle bounds
+                  if (elation.physics.colliders.helperfuncs.point_in_triangle(contactPoint, triVerts[0], triVerts[1], triVerts[2])) {
+                    penetratingVertices.push({
+                      vertex: tmpVec.clone(),
+                      depth: depth
+                    });
+                    if (depth > maxDepth) maxDepth = depth;
+                  }
+                }
+              }
+            }
+          }
+
+          // Second pass: create contacts with their actual penetration depths
+          var numContacts = penetratingVertices.length;
+          if (numContacts > 0) {
+            for (var i = 0; i < numContacts; i++) {
+              var v = penetratingVertices[i];
+              // Contact point: vertex offset by half its depth toward the plane
+              contactPoint.copy(v.vertex);
+              contactPoint.addScaledVector(triNormal, v.depth * 0.5);
+
+              var contact = new elation.physics.contact({
+                point: contactPoint.clone(),
+                normal: contactNormal.clone(),
+                penetration: -v.depth,  // Each contact has its own penetration
+                bodies: [box.body, triangle.body],
+                triangle: triangle
+              });
+              contacts.push(contact);
+            }
+          }
+
+          // Return early - we've already added all contacts
+          return contacts.length > 0 ? contacts : false;
 
         } else if (minAxisType === 1) {
           // Box face normal was minimum - contact is on box face
@@ -1112,18 +1184,13 @@ elation.require(['physics.common', 'utils.math'], function() {
           }
         }
 
-        // Find the deepest contact
+        // Return all contacts for proper multi-contact support
         if (localcontacts.length > 0) {
-          var closest = localcontacts[0];
-          for (var i = 1; i < localcontacts.length; i++) {
-            if (localcontacts[i].penetration < closest.penetration) {
-              closest = localcontacts[i];
-            }
+          var meshRoot = mesh.getRoot();
+          for (var i = 0; i < localcontacts.length; i++) {
+            localcontacts[i].bodies[1] = meshRoot;
+            contacts.push(localcontacts[i]);
           }
-
-          // Update bodies to use mesh root
-          closest.bodies[1] = mesh.getRoot();
-          contacts.push(closest);
         }
 
         return contacts;
@@ -2669,6 +2736,32 @@ elation.require(['physics.common', 'utils.math'], function() {
         return closest;
       }
     }();
+    // Point-in-triangle test using barycentric coordinates
+    // Returns true if point (already on triangle plane) is inside triangle
+    this.point_in_triangle = (function() {
+      let v0 = new THREE.Vector3(),
+          v1 = new THREE.Vector3(),
+          v2 = new THREE.Vector3();
+      return function(point, a, b, c) {
+        v0.subVectors(c, a);
+        v1.subVectors(b, a);
+        v2.subVectors(point, a);
+
+        let dot00 = v0.dot(v0);
+        let dot01 = v0.dot(v1);
+        let dot02 = v0.dot(v2);
+        let dot11 = v1.dot(v1);
+        let dot12 = v1.dot(v2);
+
+        let invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+        let u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        let v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+        // Check if point is in triangle (with small epsilon for numerical stability)
+        let eps = 0.001;
+        return (u >= -eps) && (v >= -eps) && (u + v <= 1 + eps);
+      };
+    })();
     this.closest_point_on_triangle = (function() {
       // Reference: Real Time Collision Detection by Christer Ericson
       let ab = new THREE.Vector3(),
@@ -3377,14 +3470,11 @@ elation.require(['physics.common', 'utils.math'], function() {
                 p3 = new THREE.Vector3((posarr[v3]), (posarr[v3 + 1]), (posarr[v3 + 2])),
   */
                 triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
+                triangle.index = i;
 
             if (!triangle.isDegenerate()) {
+              triangle.doubleSided = doubleSided;
               triangles.push(triangle);
-
-              if (doubleSided) {
-                let triangle2 = new elation.physics.colliders.triangle(this.body, [p3, p2, p1]);
-                triangles.push(triangle2);
-              }
 
               let l1 = p1.lengthSq(),
                   l2 = p2.lengthSq(),
@@ -3404,6 +3494,7 @@ elation.require(['physics.common', 'utils.math'], function() {
                 p2 = new THREE.Vector3(posarr[offset + 3], posarr[offset + 4], posarr[offset + 5]),
                 p3 = new THREE.Vector3(posarr[offset + 6], posarr[offset + 7], posarr[offset + 8]),
                 triangle = new elation.physics.colliders.triangle(this.body, [p1, p2, p3]);
+                triangle.index = i;
 
             if (!triangle.isDegenerate()) {
               triangles.push(triangle);
@@ -3711,6 +3802,10 @@ elation.require(['physics.common', 'utils.math'], function() {
      * Resolve a collision using default physical simulation
      */
     this.resolve = function(t, a, b) {
+      // Wake up sleeping bodies involved in collision
+      if (this.bodies[0] && this.bodies[0].setAwake) this.bodies[0].setAwake(true);
+      if (this.bodies[1] && this.bodies[1].setAwake) this.bodies[1].setAwake(true);
+
       this.restitution = this.bodies[0].restitution * this.bodies[1].restitution;
 
       // Calculate friction from body materials (use geometric mean, or max if one is zero)
@@ -3735,9 +3830,12 @@ elation.require(['physics.common', 'utils.math'], function() {
         // If no event handlers handled this event, use our default collision response
         this.applyPositionChange(t, a, b);
 
-        // Apply velocity impulse if there's actual penetration
+        // Apply velocity impulse if there's actual penetration AND objects are closing
         // (penetration < 0 means objects are overlapping)
-        if (this.penetration < 0) {
+        // With normal pointing from body[0] toward body[1]:
+        //   velocity.y > 0 means body[0] moving toward body[1] (CLOSING)
+        //   velocity.y < 0 means body[0] moving away from body[1] (SEPARATING - skip to avoid sticky contacts)
+        if (this.penetration < 0 && this.velocity.y >= 0) {
           this.applyVelocityChange(t, a, b);
           this.finalizeMovement(t, a, b);
         }
@@ -3787,7 +3885,7 @@ elation.require(['physics.common', 'utils.math'], function() {
       var accvel= new THREE.Vector3();
       var body = this.bodies[index];
 
-      // Velocity at contact point is the linear velocity + the linear component of angular velocity 
+      // Velocity at contact point is the linear velocity + the linear component of angular velocity
       velocity.crossVectors(body.angular, this.relativePositions[index]).add(body.velocity);
       velocity.applyMatrix4(this.worldToContact); // transform to contact-relative coordinate space
 
@@ -3820,7 +3918,6 @@ elation.require(['physics.common', 'utils.math'], function() {
       }
 
       this.desiredDeltaVelocity = -this.velocity.y - restitution * (this.velocity.y - velocityFromAccel);
-      //if (this.desiredDeltaVelocity > 0) this.desiredDeltaVelocity *= -1;
     }
     this.calculateInternals = function(duration) {
       this.calculateContactMatrix();
@@ -3857,41 +3954,39 @@ elation.require(['physics.common', 'utils.math'], function() {
       var impulsiveForce = new THREE.Vector3();
       var impulsiveTorque = new THREE.Vector3();
 
+      // Helper to calculate kinetic energy of a body
+      // KE = 0.5 * m * v² + 0.5 * I * ω²
+      // For moment of inertia, use approximate values based on shape
+      function getKineticEnergy(body) {
+        if (!body || body.mass <= 0) return 0;
+        var linearKE = 0.5 * body.mass * body.velocity.lengthSq();
+        // Approximate moment of inertia: I ≈ (2/5)*m*r² for sphere, (1/6)*m*s² for cube
+        // Use a general approximation of I ≈ 0.4 * m * (effective_radius)²
+        // For unit-sized objects, effective_radius ≈ 0.5, so I ≈ 0.1 * m
+        var approxI = 0.1 * body.mass;
+        var angularKE = 0.5 * approxI * body.angular.lengthSq();
+        return linearKE + angularKE;
+      }
+
       return function(duration, velocityChange, rotationChange) {
         var impulse = (this.friction == 0 ? this.calculateFrictionlessImpulse() : this.calculateFrictionImpulse());
         impulse.applyMatrix4(this.contactToWorld);
 
+        // Calculate total kinetic energy before collision response
+        var keBefore = 0;
+        for (var i = 0; i < this.bodies.length; i++) {
+          if (this.bodies[i] && this.bodies[i].mass > 0) {
+            keBefore += getKineticEnergy(this.bodies[i]);
+          }
+        }
+
         if (this.bodies[0] && this.bodies[0].mass > 0) {
           rotationChange[0] = impulsiveTorque.crossVectors(this.relativePositions[0], impulse).applyMatrix4(this.inertialMoments[0]);
           velocityChange[0] = impulsiveForce.copy(impulse).multiplyScalar(1 / this.bodies[0].mass);
-          this.impulses[0] = impulsiveForce.clone(); // allocation (FIXME - only needed for debug)
+          this.impulses[0] = impulsiveForce.clone();
+
           this.bodies[0].addVelocity(impulsiveForce);
           this.bodies[0].addAngularVelocity(impulsiveTorque);
-
-          // Rolling friction: a torque opposing rotation, proportional to normal force
-          // This models energy loss from material deformation at the contact
-          var Crr0 = this.bodies[0].material ? this.bodies[0].material.rollingfriction : 0;
-          var Crr1 = this.bodies[1] && this.bodies[1].material ? this.bodies[1].material.rollingfriction : 0;
-          var Crr = Math.max(Crr0, Crr1); // Use the higher rolling friction
-          if (Crr > 0) {
-            var normalForceMag = Math.abs(impulse.dot(this.normal));
-            var angularSpeed = this.bodies[0].angular.length();
-            if (angularSpeed > 0.001) {
-              // Rolling friction torque magnitude = Crr * radius * normalForce
-              // For simplicity, assume effective radius of ~0.5 for unit-sized objects
-              var effectiveRadius = 0.5;
-              var resistanceTorqueMag = Crr * effectiveRadius * normalForceMag;
-              // Apply as angular impulse opposing rotation (divide by moment of inertia)
-              // Approximate I = m/6 for a cube
-              var approxI = this.bodies[0].mass / 6;
-              var angularImpulseMag = resistanceTorqueMag; // This is already in torque*time units since normalForce is impulse
-              // Limit to not reverse angular velocity
-              angularImpulseMag = Math.min(angularImpulseMag, angularSpeed * approxI);
-              // Apply opposing angular velocity
-              var angularDamping = this.bodies[0].angular.clone().normalize().multiplyScalar(-angularImpulseMag / approxI);
-              this.bodies[0].angular.add(angularDamping);
-            }
-          }
         }
 
         if (this.bodies[1] && this.bodies[1].mass > 0) {
@@ -3901,21 +3996,54 @@ elation.require(['physics.common', 'utils.math'], function() {
 
           this.bodies[1].addVelocity(impulsiveForce);
           this.bodies[1].addAngularVelocity(impulsiveTorque);
+        }
 
-          // Rolling friction for body 1
-          var Crr0 = this.bodies[0].material ? this.bodies[0].material.rollingfriction : 0;
-          var Crr1 = this.bodies[1].material ? this.bodies[1].material.rollingfriction : 0;
+        // Calculate total kinetic energy after collision response
+        var keAfter = 0;
+        for (var i = 0; i < this.bodies.length; i++) {
+          if (this.bodies[i] && this.bodies[i].mass > 0) {
+            keAfter += getKineticEnergy(this.bodies[i]);
+          }
+        }
+
+        // Energy should never SIGNIFICANTLY increase from a collision
+        // Only clamp if energy increased by more than 50% AND we had meaningful energy to start
+        // This prevents runaway energy gain while allowing normal physics (like toppling) to work
+        var energyGain = keAfter - keBefore;
+        var significantGain = keBefore > 0.1 && energyGain > keBefore * 0.5;
+
+        if (significantGain) {
+          // Scale factor to bring energy back to 110% of original (allow some gain for numerical tolerance)
+          var targetKE = keBefore * 1.1;
+          var scale = Math.sqrt(targetKE / keAfter);
+
+          // Scale both linear and angular velocities
+          for (var i = 0; i < this.bodies.length; i++) {
+            if (this.bodies[i] && this.bodies[i].mass > 0) {
+              this.bodies[i].velocity.multiplyScalar(scale);
+              this.bodies[i].angular.multiplyScalar(scale);
+            }
+          }
+        }
+
+        // Apply rolling friction (energy dissipation from material deformation)
+        for (var i = 0; i < this.bodies.length; i++) {
+          if (!this.bodies[i] || this.bodies[i].mass <= 0) continue;
+
+          var Crr0 = this.bodies[0] && this.bodies[0].material ? this.bodies[0].material.rollingfriction : 0;
+          var Crr1 = this.bodies[1] && this.bodies[1].material ? this.bodies[1].material.rollingfriction : 0;
           var Crr = Math.max(Crr0, Crr1);
+
           if (Crr > 0) {
             var normalForceMag = Math.abs(impulse.dot(this.normal));
-            var angularSpeed = this.bodies[1].angular.length();
+            var angularSpeed = this.bodies[i].angular.length();
             if (angularSpeed > 0.001) {
               var effectiveRadius = 0.5;
               var resistanceTorqueMag = Crr * effectiveRadius * normalForceMag;
-              var approxI = this.bodies[1].mass / 6;
+              var approxI = this.bodies[i].mass / 6;
               var angularImpulseMag = Math.min(resistanceTorqueMag, angularSpeed * approxI);
-              var angularDamping = this.bodies[1].angular.clone().normalize().multiplyScalar(-angularImpulseMag / approxI);
-              this.bodies[1].angular.add(angularDamping);
+              var angularDamping = this.bodies[i].angular.clone().normalize().multiplyScalar(-angularImpulseMag / approxI);
+              this.bodies[i].angular.add(angularDamping);
             }
           }
         }
@@ -4011,8 +4139,15 @@ elation.require(['physics.common', 'utils.math'], function() {
 
         // Tangential impulses needed to stop sliding
         // velocity.x and velocity.z are the tangential velocities in contact space
-        var impulseX = -this.velocity.x / deltaVelX;
-        var impulseZ = -this.velocity.z / deltaVelZ;
+        var tangentVelMagnitude = Math.sqrt(this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z);
+
+        // Dead zone: if tangential velocity is very small, don't apply friction
+        // This prevents numerical instability at rest
+        var impulseX = 0, impulseZ = 0;
+        if (tangentVelMagnitude > 0.01) {
+          impulseX = -this.velocity.x / deltaVelX;
+          impulseZ = -this.velocity.z / deltaVelZ;
+        }
 
         // Calculate the magnitude of tangential impulse
         var tangentMagnitude = Math.sqrt(impulseX * impulseX + impulseZ * impulseZ);
@@ -4141,6 +4276,10 @@ elation.require(['physics.common', 'utils.math'], function() {
      * Resolve a collision using default physical simulation
      */
     this.resolve = function(t, a, b) {
+      // Wake up sleeping bodies involved in collision
+      if (this.bodies[0] && this.bodies[0].setAwake) this.bodies[0].setAwake(true);
+      if (this.bodies[1] && this.bodies[1].setAwake) this.bodies[1].setAwake(true);
+
       this.restitution = this.bodies[0].restitution * this.bodies[1].restitution;
 
       // Calculate friction from body materials (use geometric mean, or max if one is zero)

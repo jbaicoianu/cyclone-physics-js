@@ -22,6 +22,10 @@ elation.require(['physics.common'], function() {
     this.restitution = 1;
     this.timescale = 1;
     this.paused = false;
+    this.motion = 0;           // Smoothed kinetic energy for sleep detection
+    this.sleepEpsilon = 0.3;   // Sleep threshold for motion
+    this.sleepDelay = 0.5;     // Seconds of low motion required before sleeping
+    this.lowMotionTime = 0;    // How long motion has been below threshold
     this.material = {
       dynamicfriction: 0,
       staticfriction: 0,
@@ -56,7 +60,7 @@ elation.require(['physics.common'], function() {
       if (!this.id && this.object) this.id = this.object.objects['3d'].uuid;
       this.updateState();
     }
-    this.updateState = function() {
+    this.updateState = function(dt) {
       var lambda = 1e-20;
       this.processConstraints();
 
@@ -80,7 +84,40 @@ elation.require(['physics.common'], function() {
 
       this.state.changed = this.hasChanged();
 
-      this.state.sleeping = this.paused || !(this.state.forces || this.state.accelerating || this.state.moving || this.state.rotating);
+      // Motion-based sleep detection with smoothing and delay
+      var frameTime = dt || (1/60);
+
+      // Smoothed kinetic energy: v² + ω² with exponential smoothing
+      var currentMotion = this.velocity.lengthSq() + this.angular.lengthSq();
+      var bias = Math.pow(0.5, frameTime);
+      this.motion = bias * this.motion + (1 - bias) * currentMotion;
+
+      // Clamp to prevent windup from sudden high velocities
+      if (this.motion > 10 * this.sleepEpsilon) {
+        this.motion = 10 * this.sleepEpsilon;
+      }
+
+      // Determine sleep state
+      if (this.paused) {
+        this.state.sleeping = true;
+      } else if (this.state.forces) {
+        // Active forces keep body awake
+        this.state.sleeping = false;
+        this.lowMotionTime = 0;
+      } else if (this.motion < this.sleepEpsilon) {
+        // Low motion - accumulate time before sleeping
+        this.lowMotionTime += frameTime;
+        if (this.lowMotionTime >= this.sleepDelay) {
+          this.state.sleeping = true;
+          this.velocity.set(0, 0, 0);
+          this.angular.set(0, 0, 0);
+        }
+      } else {
+        // Motion above threshold - stay awake
+        this.state.sleeping = false;
+        this.lowMotionTime = 0;
+      }
+
       return this.state.sleeping;
     }
 
@@ -388,6 +425,21 @@ elation.require(['physics.common'], function() {
     }
     this.setAngularDamping = function(angular) {
       this.angularDamping = angular;
+    }
+    this.setAwake = function(awake) {
+      if (typeof awake === 'undefined') awake = true;
+      if (awake) {
+        this.state.sleeping = false;
+        // Give it enough motion to stay awake for a bit
+        this.motion = this.sleepEpsilon * 2;
+        this.lowMotionTime = 0;
+      } else {
+        this.state.sleeping = true;
+        this.velocity.set(0, 0, 0);
+        this.angular.set(0, 0, 0);
+        this.motion = 0;
+        this.lowMotionTime = this.sleepDelay;  // Already "settled"
+      }
     }
     this.add = function(body) {
       if (body.parent && body.parent !== this) {

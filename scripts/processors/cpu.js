@@ -37,7 +37,7 @@ elation.require(['physics.processors'], function() {
         if (objects[i].state.rotating) {
           //this.iterateRotation(objects[i], scaledtime);
         }
-        objects[i].updateState();
+        objects[i].updateState(t);
         if (!objects[i].state.sleeping) {
           elation.events.fire({type: "physics_update", element: objects[i], data: t});
         }
