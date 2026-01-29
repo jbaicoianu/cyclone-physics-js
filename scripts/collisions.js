@@ -905,6 +905,7 @@ elation.require(['physics.common', 'utils.math'], function() {
         var minAxisType = -1; // 0=triNormal, 1-3=boxAxes, 4-12=edge cross
         var minAxisIndex = -1;
         var penetration;
+        var faceNormalPenetration = false; // Track face normal overlap separately
 
         // Test 1: Triangle normal
         tmpVec.copy(triNormal);
@@ -914,6 +915,7 @@ elation.require(['physics.common', 'utils.math'], function() {
           projectTriangle(triVerts[0], triVerts[1], triVerts[2], tmpVec, proj2);
           penetration = testOverlap(proj1, proj2);
           if (penetration === false) return false;
+          faceNormalPenetration = penetration;
           if (penetration < minPenetration) {
             minPenetration = penetration;
             minAxisType = 0;
@@ -955,6 +957,17 @@ elation.require(['physics.common', 'utils.math'], function() {
               contactNormal.copy(tmpVec);
             }
           }
+        }
+
+        // Always use the triangle face normal for contact generation.
+        // The SAT minimum penetration axis is unstable for deep interpenetration:
+        // as overlap changes between frames, the minimum axis switches, causing
+        // the contact normal to flip wildly. The triangle face normal is geometrically
+        // stable and correct for mesh collisions (which are the primary use case).
+        // SAT still tests all 13 axes for separation detection (early-out above).
+        if (faceNormalPenetration !== false) {
+          contactNormal.copy(triNormal).normalize();
+          minAxisType = 0;
         }
 
         // Ensure normal points from box toward triangle
@@ -1184,9 +1197,67 @@ elation.require(['physics.common', 'utils.math'], function() {
           }
         }
 
-        // Return all contacts for proper multi-contact support
         if (localcontacts.length > 0) {
           var meshRoot = mesh.getRoot();
+
+          if (localcontacts.length > 1) {
+            // Step A: Deduplicate contacts at the same point.
+            // A single box vertex can touch multiple adjacent triangles on the same
+            // mesh face (each quad = 2 triangles). These are redundant — keep one
+            // contact per distinct box corner, with the shallowest penetration.
+            var pointTol = 0.01; // contacts within 1cm are from the same vertex
+            var pointTolSq = pointTol * pointTol;
+            var deduped = [localcontacts[0]];
+            for (var i = 1; i < localcontacts.length; i++) {
+              var merged = false;
+              for (var j = 0; j < deduped.length; j++) {
+                if (localcontacts[i].point.distanceToSquared(deduped[j].point) < pointTolSq) {
+                  // Same vertex — keep the one with shallowest penetration
+                  if (localcontacts[i].penetration > deduped[j].penetration) {
+                    deduped[j] = localcontacts[i];
+                  }
+                  merged = true;
+                  break;
+                }
+              }
+              if (!merged) deduped.push(localcontacts[i]);
+            }
+            localcontacts = deduped;
+          }
+
+          if (localcontacts.length > 1) {
+            // Step B: Group by normal direction, select one consistent group.
+            // When a box is deep inside a mesh, triangles from opposite faces generate
+            // contacts with contradictory normals. Keeping all of them injects energy.
+            // Group contacts whose normals are similar (dot > 0.9 = same face direction),
+            // then select the group with the shallowest average penetration (= entry face).
+            var groups = [];
+            for (var i = 0; i < localcontacts.length; i++) {
+              var placed = false;
+              for (var g = 0; g < groups.length; g++) {
+                if (localcontacts[i].normal.dot(groups[g][0].normal) > 0.9) {
+                  groups[g].push(localcontacts[i]);
+                  placed = true;
+                  break;
+                }
+              }
+              if (!placed) groups.push([localcontacts[i]]);
+            }
+
+            if (groups.length > 1) {
+              // Multiple face directions — pick group with shallowest avg penetration
+              var bestGroup = groups[0];
+              var bestAvg = -Infinity;
+              for (var g = 0; g < groups.length; g++) {
+                var avg = 0;
+                for (var i = 0; i < groups[g].length; i++) avg += groups[g][i].penetration;
+                avg /= groups[g].length;
+                if (avg > bestAvg) { bestAvg = avg; bestGroup = groups[g]; }
+              }
+              localcontacts = bestGroup;
+            }
+          }
+
           for (var i = 0; i < localcontacts.length; i++) {
             localcontacts[i].bodies[1] = meshRoot;
             contacts.push(localcontacts[i]);
