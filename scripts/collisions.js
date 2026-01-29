@@ -1217,7 +1217,7 @@ elation.require(['physics.common', 'utils.math'], function() {
         // TODO - account for offset
         cylinder.body.worldToLocalPos(sphere.body.localToWorldPos(spherepos.set(0,0,0)));
         var halfh = cylinder.height / 2,
-            rCylinder = cylinder.radius;
+            rCylinder = cylinder.radius,
             rSphere = sphere.radius;
         //var type = 'none';
 
