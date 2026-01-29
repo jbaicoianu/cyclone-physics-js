@@ -3580,13 +3580,24 @@ elation.require(['physics.common', 'utils.math'], function() {
     }
     this.getInertialMoment = function() {
       this.momentInverse = new THREE.Matrix4();
-      // Meshes are typically static geometry - return zero matrix (infinite inertia)
-      // For dynamic meshes, we'd need to compute inertia from the actual geometry
-      // which is expensive and rarely needed
+      // For static objects (mass=0), return zero matrix (infinite inertia = zero inverse)
+      if (this.body.mass <= 0) {
+        this.momentInverse.set(
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 1);
+        return this.momentInverse;
+      }
+      // Approximate mesh as a solid sphere with radius equal to bounding radius
+      // I = (2/5) * m * r² for a solid sphere
+      // momentInverse = 1/I = 5 / (2 * m * r²)
+      var r = this.localRadius || this.radius || 1;
+      var c = 5 / (2 * this.body.mass * r * r);
       this.momentInverse.set(
-        0, 0, 0, 0,
-        0, 0, 0, 0,
-        0, 0, 0, 0,
+        c, 0, 0, 0,
+        0, c, 0, 0,
+        0, 0, c, 0,
         0, 0, 0, 1);
       return this.momentInverse;
     }
