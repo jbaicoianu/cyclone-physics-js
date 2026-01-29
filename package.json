@@ -5,18 +5,22 @@
   "main": "",
   "author": "James Baicoianu",
   "license": "MIT",
-  "scripts": {},
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/jbaicoianu/cyclone-physics-js"
-  },
-  "dependencies": {
-    "elation": ">=2.0.0"
   },
   "keywords": [
     "elation",
     "physics",
     "browser",
     "node"
-  ]
+  ],
+  "devDependencies": {
+    "elation": "^2.3.24",
+    "three": "^0.182.0"
+  }
 }
