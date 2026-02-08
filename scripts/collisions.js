@@ -662,14 +662,21 @@ elation.require(['physics.common', 'utils.math'], function() {
           }
         }
 
+        // Track best face axis penetration for biasing
+        var bestFacePenetration = minPenetration;
+
         // Test 9 edge-edge cross product axes
+        // Apply a small bias (5%) so face axes are preferred when penetrations are close.
+        // This prevents unstable edge-edge normals during shallow sliding contacts where
+        // the edge-edge and face penetrations are nearly equal.
         for (var i = 0; i < 3; i++) {
           for (var j = 0; j < 3; j++) {
             crossAxis.crossVectors(box1Axes[i], box2Axes[j]);
             penetration = testAxis(box1, box2, box1Center, box2Center, box1Axes, box2Axes,
                                     tmpVec.copy(crossAxis));
             if (penetration === false) return false;
-            if (penetration < minPenetration) {
+            // Edge-edge must beat face by at least 5% margin to be selected
+            if (penetration * 1.05 < minPenetration) {
               minPenetration = penetration;
               minAxisIndex = 6 + i * 3 + j;
               contactNormal.copy(tmpVec);
@@ -2233,6 +2240,12 @@ elation.require(['physics.common', 'utils.math'], function() {
         // Find intersection between the ray our sphere is travelling and the plane upon which our triangle rests
         let intersectionPlane = elation.physics.colliders.helperfuncs.line_plane(sphereClosestPointToPlane, endpos, p1, p2, p3, intersectionPoint);
         if (intersectionPlane && triangle.containsPoint(intersectionPlane.point)) {
+          // Skip if sphere surface starts at the plane (t≈0) and is moving away (velNormal > 0).
+          // This is a sphere on the front side separating, not a back-side hit. The static
+          // overlap check above handles the actual contact case for this position.
+          if (velNormal > 0 && intersectionPlane.t < 1e-6) {
+            // Fall through to edge/vertex checks
+          } else {
           // If the intersection point is inside of our triangle, we've collided with the triangle's face
           // Compute collision normal pointing from triangle toward sphere (based on approach direction)
           // The sphere is approaching from the direction opposite to its velocity
@@ -2251,6 +2264,7 @@ elation.require(['physics.common', 'utils.math'], function() {
           });
           contacts.push(contact);
           return contacts;
+          } // end else (not a front-side separation at t≈0)
         }
         // Check sphere against edges of triangle
         endpos.x = spherepos.x + scaledVelocity.x;
@@ -2328,9 +2342,27 @@ elation.require(['physics.common', 'utils.math'], function() {
               p3 = worldpoints.p3,
               normal = worldpoints.normal;
 
-        // Find the closest point of the capsule to the triangle
-        let t = normal.dot(capsuleLine.subVectors(p1, capsuleDims.start).divideScalar(Math.abs(normal.dot(capsuleNormal))));
-        intersectionPoint.copy(capsuleNormal).multiplyScalar(t).add(capsuleDims.start);
+        // Find the closest point on the capsule axis to the triangle.
+        // Project the capsule axis onto the triangle plane to find a reference
+        // point, then refine via closest-point-on-triangle → closest-point-on-line.
+        let denom = normal.dot(capsuleNormal);
+        let capsuleLength = capsuleDims.start.distanceTo(capsuleDims.end);
+        if (Math.abs(denom) > 0.001) {
+          // Capsule not parallel to triangle plane — find where axis crosses the plane
+          let t = normal.dot(capsuleLine.subVectors(p1, capsuleDims.start)) / denom;
+          // Clamp to the capsule segment [0, length]
+          t = Math.max(0, Math.min(capsuleLength, t));
+          intersectionPoint.copy(capsuleNormal).multiplyScalar(t).add(capsuleDims.start);
+        } else {
+          // Capsule nearly parallel to triangle plane — use the endpoint closest to the plane
+          let distStart = normal.dot(capsuleLine.subVectors(capsuleDims.start, p1));
+          let distEnd = normal.dot(capsuleLine.subVectors(capsuleDims.end, p1));
+          if (Math.abs(distStart) <= Math.abs(distEnd)) {
+            intersectionPoint.copy(capsuleDims.start);
+          } else {
+            intersectionPoint.copy(capsuleDims.end);
+          }
+        }
         elation.physics.colliders.helperfuncs.closest_point_on_triangle(intersectionPoint, p1, p2, p3, closestPoint);
         elation.physics.colliders.helperfuncs.closest_point_on_line(capsuleDims.start, capsuleDims.end, closestPoint, localSphere.position);
 
@@ -2401,11 +2433,14 @@ elation.require(['physics.common', 'utils.math'], function() {
 
           // Handle static contacts first, since they're equivalent to penetrationTime=0
           let closest = closestStatic || closestDynamic;
-          if (closest.bodies[0] === sphere) {
-            closest.bodies[0] = sphere.body;
-            closest.bodies[1] = mesh.getRoot();
-          } else if (closest.bodies[1] === sphere) {
-            closest.bodies[0] = mesh.getRoot();
+          // Ensure bodies reference the top-level rigidbodies tracked by the physics system.
+          var meshRoot = mesh.getRoot();
+          if (closest.bodies[0] === sphere.body) {
+            closest.bodies[1] = meshRoot;
+          } else if (closest.bodies[1] === sphere.body) {
+            closest.bodies[0] = meshRoot;
+          } else {
+            closest.bodies[0] = meshRoot;
             closest.bodies[1] = sphere.body;
           }
           contacts.push(closest);
@@ -2447,31 +2482,109 @@ elation.require(['physics.common', 'utils.math'], function() {
         }
 
         if (localcontacts.length > 0) {
-          let closestStatic = false,
-              closestDynamic = false;
+          // Separate static and dynamic contacts
+          let staticContacts = [];
+          let dynamicContacts = [];
           for (let i = 0; i < localcontacts.length; i++) {
             let contact = localcontacts[i];
             if (contact instanceof elation.physics.contact_dynamic) {
-              if (!closestDynamic || closestDynamic.penetrationTime > contact.penetrationTime) {
-                closestDynamic = contact;
-              }
+              dynamicContacts.push(contact);
             } else {
-              if (!closestStatic || closestStatic.penetration > contact.penetration) {
-                closestStatic = contact;
+              // Filter out near-zero penetrations (just touching, not real overlap)
+              if (contact.penetration < -0.001) {
+                staticContacts.push(contact);
               }
             }
           }
 
-          // Handle static contacts first, since they're equivalent to penetrationTime=0
-          let closest = closestStatic || closestDynamic;
-          if (closest.bodies[0] === capsule) {
-            closest.bodies[0] = capsule.body;
-            closest.bodies[1] = mesh.getRoot();
-          } else if (closest.bodies[1] === capsule) {
-            closest.bodies[0] = mesh.getRoot();
-            closest.bodies[1] = capsule.body;
+          // Group static contacts by normal direction. A capsule can legitimately
+          // touch multiple surfaces simultaneously (e.g., floor + wall in a room mesh).
+          // Return the best contact from each distinct normal group, but filter out
+          // groups that are truly contradictory (opposite normals from being inside
+          // a convex mesh section).
+          let selectedStatic = [];
+          if (staticContacts.length > 0) {
+            let groups = [];
+            for (let i = 0; i < staticContacts.length; i++) {
+              let placed = false;
+              for (let g = 0; g < groups.length; g++) {
+                if (staticContacts[i].normal.dot(groups[g][0].normal) > 0.7) {
+                  groups[g].push(staticContacts[i]);
+                  placed = true;
+                  break;
+                }
+              }
+              if (!placed) groups.push([staticContacts[i]]);
+            }
+
+            // Check for contradictory groups (opposite normals, dot < -0.5).
+            // When contradictory groups exist, keep only the shallowest one —
+            // the capsule is embedded in a convex mesh section and we want
+            // the entry face, not the far face. For non-contradictory groups
+            // (perpendicular surfaces like floor+wall), keep all.
+            let hasContradictory = false;
+            for (let g1 = 0; g1 < groups.length && !hasContradictory; g1++) {
+              for (let g2 = g1 + 1; g2 < groups.length; g2++) {
+                if (groups[g1][0].normal.dot(groups[g2][0].normal) < -0.5) {
+                  hasContradictory = true;
+                  break;
+                }
+              }
+            }
+
+            if (hasContradictory) {
+              // Contradictory normals detected — pick only the shallowest group
+              let bestGroup = groups[0];
+              let bestAvg = -Infinity;
+              for (let g = 0; g < groups.length; g++) {
+                let avg = 0;
+                for (let i = 0; i < groups[g].length; i++) avg += groups[g][i].penetration;
+                avg /= groups[g].length;
+                if (avg > bestAvg) { bestAvg = avg; bestGroup = groups[g]; }
+              }
+              // Select shallowest contact from the best group
+              let best = bestGroup[0];
+              for (let i = 1; i < bestGroup.length; i++) {
+                if (bestGroup[i].penetration > best.penetration) best = bestGroup[i];
+              }
+              selectedStatic.push(best);
+            } else {
+              // No contradictory groups — return the best contact from each group.
+              // This allows simultaneous floor + wall contacts.
+              for (let g = 0; g < groups.length; g++) {
+                let best = groups[g][0];
+                for (let i = 1; i < groups[g].length; i++) {
+                  if (groups[g][i].penetration > best.penetration) best = groups[g][i];
+                }
+                selectedStatic.push(best);
+              }
+            }
           }
-          contacts.push(closest);
+
+          let closestDynamic = false;
+          for (let i = 0; i < dynamicContacts.length; i++) {
+            if (!closestDynamic || closestDynamic.penetrationTime > dynamicContacts[i].penetrationTime) {
+              closestDynamic = dynamicContacts[i];
+            }
+          }
+
+          // Add all selected contacts (static contacts from each surface group,
+          // plus the best dynamic contact if no static contacts exist)
+          var meshRoot = mesh.getRoot();
+          let contactsToAdd = selectedStatic.length > 0 ? selectedStatic : (closestDynamic ? [closestDynamic] : []);
+          for (let i = 0; i < contactsToAdd.length; i++) {
+            let c = contactsToAdd[i];
+            // Ensure bodies reference the top-level rigidbodies
+            if (c.bodies[0] === capsule.body) {
+              c.bodies[1] = meshRoot;
+            } else if (c.bodies[1] === capsule.body) {
+              c.bodies[0] = meshRoot;
+            } else {
+              c.bodies[0] = meshRoot;
+              c.bodies[1] = capsule.body;
+            }
+            contacts.push(c);
+          }
         }
 
         return contacts;
@@ -3904,12 +4017,24 @@ elation.require(['physics.common', 'utils.math'], function() {
         this.calculateInternals(t);
         this.initialized = true;
       }
-      // Fire events for both objects, and combine them into one array
-      var events = elation.events.fire({type: 'physics_collide', element: this.bodies[0], data: this});
-      events.push.apply(events, elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
 
-      if (!elation.events.wasDefaultPrevented(events)) {
-        // If no event handlers handled this event, use our default collision response
+      // For shallow, near-resting contacts (small penetration + small closing velocity),
+      // apply full collision response but skip firing physics_collide events. This prevents
+      // sliding/resting contacts from generating hundreds of events per second while
+      // maintaining correct physical response and momentum conservation.
+      // Penetration threshold: 0.05m (objects barely overlapping)
+      // Velocity threshold: 2.0 m/s (sliding contacts have low closing velocity)
+      var isRestingContact = this.penetration > -0.05 && Math.abs(this.velocity.y) < 2.0;
+
+      var events;
+      if (!isRestingContact) {
+        // Fire events for both objects, and combine them into one array
+        events = elation.events.fire({type: 'physics_collide', element: this.bodies[0], data: this});
+        events.push.apply(events, elation.events.fire({type: 'physics_collide', element: this.bodies[1], data: this}));
+      }
+
+      if (!events || !elation.events.wasDefaultPrevented(events)) {
+        // Apply collision response (position + velocity)
         this.applyPositionChange(t, a, b);
 
         // Apply velocity impulse if there's actual penetration AND objects are closing
@@ -3921,8 +4046,10 @@ elation.require(['physics.common', 'utils.math'], function() {
           this.applyVelocityChange(t, a, b);
           this.finalizeMovement(t, a, b);
         }
-        events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[0], data: this}));
-        events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[1], data: this}));
+        if (events) {
+          events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[0], data: this}));
+          events.push.apply(events, elation.events.fire({type: 'physics_collision_resolved', element: this.bodies[1], data: this}));
+        }
       }
     }
     /**
@@ -3986,11 +4113,15 @@ elation.require(['physics.common', 'utils.math'], function() {
       var velocityFromAccel = 0;
       var lastaccel = new THREE.Vector3();
 
+      // velocityFromAccel = acceleration's contribution to this.velocity.y (contact closing velocity)
+      // this.velocity = localVel(body0) - localVel(body1), so:
+      //   body0's accel contributes +accel0·normal·dt to closing velocity
+      //   body1's accel contributes -accel1·normal·dt to closing velocity
       if (this.bodies[0] && !this.bodies[0].state.sleeping) {
-        velocityFromAccel -= lastaccel.copy(this.bodies[0].lastacceleration).multiplyScalar(duration).dot(this.normal);
+        velocityFromAccel += lastaccel.copy(this.bodies[0].lastacceleration).multiplyScalar(duration).dot(this.normal);
       }
       if (this.bodies[1] && !this.bodies[1].state.sleeping) {
-        velocityFromAccel += lastaccel.copy(this.bodies[1].lastacceleration).multiplyScalar(duration).dot(this.normal);
+        velocityFromAccel -= lastaccel.copy(this.bodies[1].lastacceleration).multiplyScalar(duration).dot(this.normal);
       }
 
       var restitution = this.restitution;
@@ -3999,7 +4130,16 @@ elation.require(['physics.common', 'utils.math'], function() {
         restitution = 0;
       }
 
-      this.desiredDeltaVelocity = -this.velocity.y - restitution * (this.velocity.y - velocityFromAccel);
+      // Only bounce the "real" closing velocity (excluding acceleration contribution).
+      // If the pre-acceleration velocity was separating (negative), don't bounce it —
+      // that would reverse an already-separating contact, causing sticky collisions.
+      var velocityWithoutAccel = this.velocity.y - velocityFromAccel;
+      if (velocityWithoutAccel < 0) {
+        // Objects were separating before acceleration — no bounce needed, leave velocity unchanged
+        this.desiredDeltaVelocity = this.velocity.y;
+      } else {
+        this.desiredDeltaVelocity = -this.velocity.y - restitution * velocityWithoutAccel;
+      }
     }
     this.calculateInternals = function(duration) {
       this.calculateContactMatrix();
@@ -4377,6 +4517,7 @@ elation.require(['physics.common', 'utils.math'], function() {
         this.calculateInternals(t);
         this.initialized = true;
       }
+
       // Move the object to its exact collision point
       this.applyPositionChange(t, a, b);
 
