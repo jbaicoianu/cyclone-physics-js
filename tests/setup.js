@@ -74,6 +74,7 @@ const physicsFiles = [
   'rigidbody.js',
   'forces.js',
   'collisions.js',
+  'octree.js',
   'processors.js',
   'processors/cpu.js',
 ];

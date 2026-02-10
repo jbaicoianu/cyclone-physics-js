@@ -29,49 +29,40 @@ elation.require(["physics.common"], function() {
     this.collide = function(t) {
       if (t == 0) return; // paused, do nothing
       var collisions = [];
-      var potentials = [];
-      // FIXME - Brute force for now.  We should use octrees or BVH here
+
+      // Lazy-init octree
+      if (!this._octree) this._octree = new elation.physics.octree();
+
+      // Collect bodies with colliders
       var objects = this.parent.getObjects();
-      for (var i = 0; i < objects.length-1; i++) {
-        var obj1 = objects[i];
-        if (obj1.collider) { // && obj1.collider.radius) {
-          for (var j = i+1; j < objects.length; j++) {
-            var obj2 = objects[j];
-            //if (obj2.collider && obj2.collider.radius && !(obj1.state.sleeping && obj2.state.sleeping) && obj1.isPotentiallyColliding(obj2)) {
-            if (obj2.collider && !(obj1.state.sleeping && obj2.state.sleeping)) {
-              obj1.state.colliding = false;
-              obj2.state.colliding = false;
-              potentials.push([obj1, obj2]);
-            }
-          }
+      var collidable = [];
+      for (var i = 0; i < objects.length; i++) {
+        if (objects[i].collider) {
+          objects[i].state.colliding = false;
+          collidable.push(objects[i]);
         }
       }
-      if (potentials.length > 0) {
-        //for (var i = 0; i < potentials.length; i++) {
-        while (potentials.length > 0) {
-          let potentialpair = potentials.shift();
-          var obj1 = potentialpair[0], obj2 = potentialpair[1];
-          // Get list of all contact points between the two objects
-          var contacts = obj1.getContacts(obj2, [], t);
-/*
-          if (contacts && contacts.length > 0) {
-            // Resolve the deepest contact first
-            var deepest = this.getDeepestContact(contacts);
-            collisions.push(deepest);
-            obj1.state.colliding = true;
-            obj2.state.colliding = true;
+
+      // Build octree (computes AABBs internally, passing dt for velocity expansion)
+      this._octree.build(collidable, t);
+      var potentials = this._octree.getPotentialPairs();
+
+      // Narrow phase
+      for (var i = 0; i < potentials.length; i++) {
+        var obj1 = potentials[i][0], obj2 = potentials[i][1];
+        // Skip if both sleeping
+        if (obj1.state.sleeping && obj2.state.sleeping) continue;
+        // Get list of all contact points between the two objects
+        var contacts = obj1.getContacts(obj2, [], t);
+        if (contacts && contacts.length > 0) {
+          for (var j = 0; j < contacts.length; j++) {
+            collisions.push(contacts[j]);
           }
-*/
-          if (contacts && contacts.length > 0) {
-            for (let i = 0; i < contacts.length; i++) {
-              collisions.push(contacts[i]);
-              obj1.state.colliding = true;
-              obj2.state.colliding = true;
-            }
-          }
+          obj1.state.colliding = true;
+          obj2.state.colliding = true;
         }
-        //console.log(potentials.length + ' potential crashes:', potentials, collisions);
       }
+
       return collisions;
     }
     this.getDeepestContact = function(contacts) {

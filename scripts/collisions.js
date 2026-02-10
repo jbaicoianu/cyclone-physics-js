@@ -3241,7 +3241,13 @@ elation.require(['physics.common', 'utils.math'], function() {
    * colliders
    * =========
    */
- 
+
+  // Scratch vectors for AABB computation (avoid per-frame allocations)
+  var _aabbCenter = new THREE.Vector3();
+  var _aabbCorner = new THREE.Vector3();
+  var _aabbP1 = new THREE.Vector3();
+  var _aabbP2 = new THREE.Vector3();
+
   elation.extend("physics.colliders.sphere", function(body, args={}) {
     this.type = 'sphere';
     this.body = body;
@@ -3308,6 +3314,29 @@ elation.require(['physics.common', 'utils.math'], function() {
         isroot: this.isroot,
       };
     }
+    this.getWorldAABB = function(out, dt) {
+      // World center = body position + rotated offset
+      _aabbCenter.copy(this.body.positionWorld);
+      if (this.offset) {
+        _aabbCorner.copy(this.offset);
+        this.body.localToWorldDir(_aabbCorner);
+        _aabbCenter.add(_aabbCorner);
+      }
+      var scaleWorld = this.body.scaleWorld;
+      var r = this.radius * Math.max(scaleWorld.x, scaleWorld.y, scaleWorld.z);
+      out.min.x = _aabbCenter.x - r;
+      out.min.y = _aabbCenter.y - r;
+      out.min.z = _aabbCenter.z - r;
+      out.max.x = _aabbCenter.x + r;
+      out.max.y = _aabbCenter.y + r;
+      out.max.z = _aabbCenter.z + r;
+      // Expand by velocity * dt for swept collision correctness
+      var vel = this.body.velocity;
+      if (vel.x * dt > 0) out.max.x += vel.x * dt; else out.min.x += vel.x * dt;
+      if (vel.y * dt > 0) out.max.y += vel.y * dt; else out.min.y += vel.y * dt;
+      if (vel.z * dt > 0) out.max.z += vel.z * dt; else out.min.z += vel.z * dt;
+      return out;
+    }
   });
   elation.extend("physics.colliders.plane", function(body, args) {
     this.type = 'plane';
@@ -3348,6 +3377,10 @@ elation.require(['physics.common', 'utils.math'], function() {
         offset: this.offset,
         trigger: this.trigger,
       };
+    }
+    this.getWorldAABB = function(out, dt) {
+      // Planes have infinite extent — handled separately by the octree
+      return null;
     }
   });
   elation.extend("physics.colliders.box", function(body, args) {
@@ -3447,6 +3480,27 @@ elation.require(['physics.common', 'utils.math'], function() {
         trigger: this.trigger,
       };
     }
+    this.getWorldAABB = function(out, dt) {
+      // Transform all 8 corners to world space, take component-wise min/max
+      out.min.x = Infinity; out.min.y = Infinity; out.min.z = Infinity;
+      out.max.x = -Infinity; out.max.y = -Infinity; out.max.z = -Infinity;
+      for (var i = 0; i < 8; i++) {
+        this.getCorner(i, _aabbCorner);
+        this.body.localToWorldPos(_aabbCorner);
+        if (_aabbCorner.x < out.min.x) out.min.x = _aabbCorner.x;
+        if (_aabbCorner.y < out.min.y) out.min.y = _aabbCorner.y;
+        if (_aabbCorner.z < out.min.z) out.min.z = _aabbCorner.z;
+        if (_aabbCorner.x > out.max.x) out.max.x = _aabbCorner.x;
+        if (_aabbCorner.y > out.max.y) out.max.y = _aabbCorner.y;
+        if (_aabbCorner.z > out.max.z) out.max.z = _aabbCorner.z;
+      }
+      // Expand by velocity * dt for swept collision correctness
+      var vel = this.body.velocity;
+      if (vel.x * dt > 0) out.max.x += vel.x * dt; else out.min.x += vel.x * dt;
+      if (vel.y * dt > 0) out.max.y += vel.y * dt; else out.min.y += vel.y * dt;
+      if (vel.z * dt > 0) out.max.z += vel.z * dt; else out.min.z += vel.z * dt;
+      return out;
+    }
   });
   elation.extend("physics.colliders.cylinder", function(body, args) {
     this.type = 'cylinder';
@@ -3515,6 +3569,29 @@ elation.require(['physics.common', 'utils.math'], function() {
         offset: this.offset,
         trigger: this.trigger,
       };
+    }
+    this.getWorldAABB = function(out, dt) {
+      // Transform two axis endpoints (local ±halfHeight along Y + offset) to world space
+      var halfH = this.height / 2;
+      _aabbP1.set(this.offset.x, this.offset.y - halfH, this.offset.z);
+      _aabbP2.set(this.offset.x, this.offset.y + halfH, this.offset.z);
+      this.body.localToWorldPos(_aabbP1);
+      this.body.localToWorldPos(_aabbP2);
+      // Expand by scaled radius in all axes
+      var scaleWorld = this.body.scaleWorld;
+      var r = this.radius * Math.max(scaleWorld.x, scaleWorld.z);
+      out.min.x = Math.min(_aabbP1.x, _aabbP2.x) - r;
+      out.min.y = Math.min(_aabbP1.y, _aabbP2.y) - r;
+      out.min.z = Math.min(_aabbP1.z, _aabbP2.z) - r;
+      out.max.x = Math.max(_aabbP1.x, _aabbP2.x) + r;
+      out.max.y = Math.max(_aabbP1.y, _aabbP2.y) + r;
+      out.max.z = Math.max(_aabbP1.z, _aabbP2.z) + r;
+      // Expand by velocity * dt for swept collision correctness
+      var vel = this.body.velocity;
+      if (vel.x * dt > 0) out.max.x += vel.x * dt; else out.min.x += vel.x * dt;
+      if (vel.y * dt > 0) out.max.y += vel.y * dt; else out.min.y += vel.y * dt;
+      if (vel.z * dt > 0) out.max.z += vel.z * dt; else out.min.z += vel.z * dt;
+      return out;
     }
   });
   elation.extend("physics.colliders.capsule", function(body, args) {
@@ -3596,6 +3673,28 @@ elation.require(['physics.common', 'utils.math'], function() {
         offset: this.offset,
         trigger: this.trigger,
       };
+    }
+    this.getWorldAABB = function(out, dt) {
+      // Transform two endpoints (offset and offset + (0, length, 0)) to world space
+      _aabbP1.copy(this.offset);
+      _aabbP2.set(this.offset.x, this.offset.y + this.length, this.offset.z);
+      this.body.localToWorldPos(_aabbP1);
+      this.body.localToWorldPos(_aabbP2);
+      // Expand by scaled radius in all axes
+      var scaleWorld = this.body.scaleWorld;
+      var r = this.radius * Math.max(scaleWorld.x, scaleWorld.z);
+      out.min.x = Math.min(_aabbP1.x, _aabbP2.x) - r;
+      out.min.y = Math.min(_aabbP1.y, _aabbP2.y) - r;
+      out.min.z = Math.min(_aabbP1.z, _aabbP2.z) - r;
+      out.max.x = Math.max(_aabbP1.x, _aabbP2.x) + r;
+      out.max.y = Math.max(_aabbP1.y, _aabbP2.y) + r;
+      out.max.z = Math.max(_aabbP1.z, _aabbP2.z) + r;
+      // Expand by velocity * dt for swept collision correctness
+      var vel = this.body.velocity;
+      if (vel.x * dt > 0) out.max.x += vel.x * dt; else out.min.x += vel.x * dt;
+      if (vel.y * dt > 0) out.max.y += vel.y * dt; else out.min.y += vel.y * dt;
+      if (vel.z * dt > 0) out.max.z += vel.z * dt; else out.min.z += vel.z * dt;
+      return out;
     }
   });
   elation.extend("physics.colliders.mesh", function(body, args) {
@@ -3806,6 +3905,24 @@ elation.require(['physics.common', 'utils.math'], function() {
         isroot: this.isroot,
       };
     }
+    this.getWorldAABB = function(out, dt) {
+      // Use localRadius scaled by max world scale, centered on body position
+      var scaleWorld = this.body.scaleWorld;
+      var r = (this.localRadius || this.radius || 0) * Math.max(scaleWorld.x, scaleWorld.y, scaleWorld.z);
+      var pos = this.body.positionWorld;
+      out.min.x = pos.x - r;
+      out.min.y = pos.y - r;
+      out.min.z = pos.z - r;
+      out.max.x = pos.x + r;
+      out.max.y = pos.y + r;
+      out.max.z = pos.z + r;
+      // Expand by velocity * dt for swept collision correctness
+      var vel = this.body.velocity;
+      if (vel.x * dt > 0) out.max.x += vel.x * dt; else out.min.x += vel.x * dt;
+      if (vel.y * dt > 0) out.max.y += vel.y * dt; else out.min.y += vel.y * dt;
+      if (vel.z * dt > 0) out.max.z += vel.z * dt; else out.min.z += vel.z * dt;
+      return out;
+    }
   });
   elation.extend("physics.colliders.triangle", function(body, args) {
     this.type = 'triangle';
@@ -3970,6 +4087,22 @@ elation.require(['physics.common', 'utils.math'], function() {
         p3: this.p3,
         trigger: this.trigger,
       };
+    }
+    this.getWorldAABB = function(out, dt) {
+      // Transform the 3 vertices to world space and take component-wise min/max
+      var wp = this.getWorldPoints();
+      out.min.x = Math.min(wp.p1.x, wp.p2.x, wp.p3.x);
+      out.min.y = Math.min(wp.p1.y, wp.p2.y, wp.p3.y);
+      out.min.z = Math.min(wp.p1.z, wp.p2.z, wp.p3.z);
+      out.max.x = Math.max(wp.p1.x, wp.p2.x, wp.p3.x);
+      out.max.y = Math.max(wp.p1.y, wp.p2.y, wp.p3.y);
+      out.max.z = Math.max(wp.p1.z, wp.p2.z, wp.p3.z);
+      // Expand by velocity * dt for swept collision correctness
+      var vel = this.body.velocity;
+      if (vel.x * dt > 0) out.max.x += vel.x * dt; else out.min.x += vel.x * dt;
+      if (vel.y * dt > 0) out.max.y += vel.y * dt; else out.min.y += vel.y * dt;
+      if (vel.z * dt > 0) out.max.z += vel.z * dt; else out.min.z += vel.z * dt;
+      return out;
     }
   });
 
