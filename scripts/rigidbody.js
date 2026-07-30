@@ -104,6 +104,12 @@ elation.require(['physics.common'], function() {
         // Active forces keep body awake
         this.state.sleeping = false;
         this.lowMotionTime = 0;
+      } else if ((this.state.rotating && this.angularDamping >= 1) || (this.state.moving && this.linearDamping >= 1)) {
+        // Undamped motion never decays on its own: a constant spin or drift
+        // is intentional animation, not a body settling toward rest. Sleeping
+        // it (and zeroing its velocities) would freeze it permanently.
+        this.state.sleeping = false;
+        this.lowMotionTime = 0;
       } else if (this.motion < this.sleepEpsilon) {
         // Low motion - accumulate time before sleeping
         this.lowMotionTime += frameTime;
